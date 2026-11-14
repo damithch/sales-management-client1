@@ -1,1 +1,58 @@
-import { Shell } from "@/components/shell"; import { ExportButton, Table, Dots } from "@/components/ui"; import { products } from "@/lib/data"; import { createProduct } from "@/app/actions"; export default function Products(){return <Shell title="Products"><div className="mb-6 grid gap-5 lg:grid-cols-[320px_1fr]"><form action={createProduct} className="card space-y-3 p-5"><h2 className="font-bold">Add product</h2><input required name="name" className="input" placeholder="Product name"/><input required name="sku" className="input" placeholder="SKU"/><input name="category" className="input" placeholder="Category"/><input name="unit" className="input" placeholder="Unit"/><input required name="price" type="number" step="0.01" className="input" placeholder="Price"/><button className="btn-primary w-full">Save product</button></form><div><div className="mb-5 flex items-center justify-between"><p className="text-sm text-slate-500">{products.length} products in your catalogue</p><ExportButton kind="products"/></div><Table><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400"><th className="px-5 py-4">Product</th><th className="px-5 py-4">SKU</th><th className="px-5 py-4">Category</th><th className="px-5 py-4">Unit</th><th className="px-5 py-4">Price</th><th className="px-5 py-4"/></tr></thead><tbody>{products.map(p=><tr key={p.id} className="border-b border-slate-50 last:border-0"><td className="px-5 py-4 font-semibold">{p.name}</td><td className="px-5 py-4 text-slate-500">{p.sku}</td><td className="px-5 py-4">{p.category}</td><td className="px-5 py-4">{p.unit}</td><td className="px-5 py-4">${p.price}</td><td className="px-5 py-4"><Dots/></td></tr>)}</tbody></Table></div></div></Shell>}
+import { createProduct } from "@/app/actions";
+import { ActionForm } from "@/components/forms";
+import { ProductFields } from "@/components/product-fields";
+import { Shell } from "@/components/shell";
+import { Badge, EditLink, ExportLink, Table, Td } from "@/components/ui";
+import { requireRole } from "@/lib/auth";
+import { money } from "@/lib/format";
+import { listProducts } from "@/lib/queries";
+
+export default async function Products() {
+  const session = await requireRole("Admin");
+  const products = await listProducts();
+  return (
+    <Shell session={session} title="Products">
+      <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
+        <ActionForm action={createProduct} submit="Add product">
+          <h2 className="font-bold">New product</h2>
+          <ProductFields />
+        </ActionForm>
+        <div>
+          <div className="mb-4 flex justify-end">
+            <ExportLink kind="products" />
+          </div>
+          <Table
+            head={[
+              "Name",
+              "SKU",
+              "Category",
+              "Unit",
+              "List price",
+              "Status",
+              "",
+            ]}
+            empty={products.length === 0 && "No products yet."}
+          >
+            {products.map((product) => (
+              <tr key={product.id}>
+                <Td className="font-semibold">{product.name}</Td>
+                <Td className="text-slate-500">{product.sku}</Td>
+                <Td>{product.category}</Td>
+                <Td>{product.unit}</Td>
+                <Td>{money(product.price)}</Td>
+                <Td>
+                  <Badge tone={product.active ? "green" : "slate"}>
+                    {product.active ? "Active" : "Inactive"}
+                  </Badge>
+                </Td>
+                <Td>
+                  <EditLink href={`/products/${product.id}`} />
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        </div>
+      </div>
+    </Shell>
+  );
+}

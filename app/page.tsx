@@ -1,1 +1,211 @@
-import { Shell } from "@/components/shell"; import { StatCard, ExportButton, Table, Dots } from "@/components/ui"; import { distributors, money, primarySales, secondarySales, stockForDistributor } from "@/lib/data"; import { CalendarDays, ChevronDown } from "lucide-react"; export default function Dashboard() { const primary = primarySales.reduce((a, s) => a + s.quantity * s.price, 0); const secondary = secondarySales.reduce((a, s) => a + s.quantity * s.price, 0); const stock = distributors.reduce((a, d) => a + stockForDistributor(d.name), 0); return <Shell title="Overview"><div className="mb-6 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-slate-500">Here’s what’s happening across your distribution network.</p><div className="flex gap-2"><button className="btn-secondary"><CalendarDays size={16} className="mr-2"/>Mar 01 – Mar 31, 2026<ChevronDown size={15} className="ml-2"/></button><ExportButton/></div></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><StatCard label="Primary sales" value={money(primary)} note="12.8% vs last month" accent="bg-brand"/><StatCard label="Secondary sales" value={money(secondary)} note="8.4% vs last month" accent="bg-emerald-500"/><StatCard label="Stock remaining" value={stock.toLocaleString()} note="Units across 4 distributors" accent="bg-amber-500"/><StatCard label="Active distributors" value="4" note="2 orders this week" accent="bg-violet-500"/></div><div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]"><div className="card p-5"><div className="mb-6 flex items-center justify-between"><div><h2 className="font-bold">Sales performance</h2><p className="mt-1 text-xs text-slate-400">Primary vs secondary sales value</p></div><button className="btn-secondary px-3 py-2 text-xs">Last 6 months <ChevronDown size={13} className="ml-2"/></button></div><div className="flex h-56 items-end gap-3 border-b border-l border-slate-100 px-3 pb-0 pt-4 sm:gap-6">{[48,68,59,80,74,92].map((h,i)=><div key={i} className="flex flex-1 flex-col items-center gap-2"><div className="flex h-44 w-full items-end justify-center gap-1"><div style={{height:`${h}%`}} className="w-1/3 rounded-t bg-indigo-200"/><div style={{height:`${h-18}%`}} className="w-1/3 rounded-t bg-brand"/></div><span className="text-xs text-slate-400">{["Oct","Nov","Dec","Jan","Feb","Mar"][i]}</span></div>)}</div><div className="mt-5 flex gap-5 text-xs text-slate-500"><span><i className="mr-2 inline-block h-2 w-2 rounded-full bg-brand"/>Primary sales</span><span><i className="mr-2 inline-block h-2 w-2 rounded-full bg-indigo-200"/>Secondary sales</span></div></div><div className="card p-5"><div className="mb-5"><h2 className="font-bold">Top products</h2><p className="mt-1 text-xs text-slate-400">By units sold this month</p></div>{["Classic Cola 330ml","Orange Burst 500ml","Crispy Chips Original","Sparkling Water 1L"].map((p,i)=><div key={p} className="mb-5 flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-xs font-bold text-slate-500">0{i+1}</div><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{p}</div><div className="mt-1 h-1.5 rounded-full bg-slate-100"><div className="h-1.5 rounded-full bg-brand" style={{width:`${[92,71,55,39][i]}%`}}/></div></div><span className="text-sm font-bold">{[572,376,310,250][i]}</span></div>)}</div></div><div className="mt-6"><div className="mb-4"><h2 className="font-bold">Stock by distributor</h2><p className="mt-1 text-xs text-slate-400">Calculated from primary less secondary sales</p></div><Table><thead><tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400"><th className="px-5 py-4">Distributor</th><th className="px-5 py-4">Location</th><th className="px-5 py-4">Primary units</th><th className="px-5 py-4">Secondary units</th><th className="px-5 py-4">Stock remaining</th><th className="px-5 py-4"/></tr></thead><tbody>{distributors.map(d=>{const p=primarySales.filter(s=>s.distributor===d.name).reduce((a,s)=>a+s.quantity,0);const sec=secondarySales.filter(s=>s.distributor===d.name).reduce((a,s)=>a+s.quantity,0);return <tr key={d.id} className="border-b border-slate-50 last:border-0"><td className="px-5 py-4 font-semibold">{d.name}</td><td className="px-5 py-4 text-slate-500">{d.city}</td><td className="px-5 py-4">{p.toLocaleString()}</td><td className="px-5 py-4">{sec.toLocaleString()}</td><td className="px-5 py-4"><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">{(p-sec).toLocaleString()} units</span></td><td className="px-5 py-4"><Dots/></td></tr>})}</tbody></Table></div></Shell> }
+import Link from "next/link";
+import { Shell } from "@/components/shell";
+import {
+  ExportLink,
+  Filters,
+  StatCard,
+  StockBadge,
+  Table,
+  Td,
+} from "@/components/ui";
+import { requireRole } from "@/lib/auth";
+import { readFilters, sixMonthsBefore, type SearchParams } from "@/lib/filters";
+import { money, today, units } from "@/lib/format";
+import {
+  listDistributors,
+  monthlyTrend,
+  salesTotals,
+  stockByDistributor,
+  topProducts,
+} from "@/lib/queries";
+import { hasRole } from "@/lib/roles";
+
+export default async function Dashboard({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const session = await requireRole("Sales Rep");
+  const chosen = await readFilters(searchParams);
+  // Default view: the last six calendar months up to today.
+  const to = chosen.to ?? today();
+  const from = chosen.from ?? sixMonthsBefore(to);
+  const filters = { from, to, distributorId: chosen.distributorId };
+
+  const [distributors, primary, secondary, stock, products, trend] =
+    await Promise.all([
+      listDistributors(),
+      salesTotals("primary", filters),
+      salesTotals("secondary", filters),
+      stockByDistributor(filters),
+      topProducts(filters),
+      monthlyTrend(from, to, filters.distributorId),
+    ]);
+
+  const totalStock = stock.reduce((sum, row) => sum + row.stock, 0);
+  const months = trend.slice(-12);
+  const peak = Math.max(
+    1,
+    ...months.flatMap((row) => [row.primary_value, row.secondary_value]),
+  );
+  const topUnits = Math.max(1, ...products.map((row) => row.secondary_units));
+  const isAdmin = hasRole(session.role, "Admin");
+
+  return (
+    <Shell session={session} title="Overview">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <Filters {...filters} distributors={distributors} />
+        <ExportLink
+          kind="stock"
+          params={{ from, to, distributor: filters.distributorId }}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Primary sales"
+          value={money(primary.value)}
+          note={`${units(primary.units)} units to distributors`}
+          accent="bg-brand"
+        />
+        <StatCard
+          label="Secondary sales"
+          value={money(secondary.value)}
+          note={`${units(secondary.units)} units sold on`}
+          accent="bg-emerald-500"
+        />
+        <StatCard
+          label="Stock at distributors"
+          value={units(totalStock)}
+          note={`Units held as at ${to}`}
+          accent="bg-amber-500"
+        />
+        <StatCard
+          label="Sell-through"
+          value={
+            primary.units > 0
+              ? `${Math.round((secondary.units / primary.units) * 100)}%`
+              : "–"
+          }
+          note="Secondary units as a share of primary"
+          accent="bg-violet-500"
+        />
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
+        <div className="card p-5">
+          <h2 className="font-bold">Monthly trend</h2>
+          <p className="mt-1 text-xs text-slate-400">Sales value per month</p>
+          <div className="mt-4 flex h-56 items-end gap-2 border-b border-slate-100 sm:gap-4">
+            {months.map((row) => (
+              <div
+                key={row.month}
+                className="flex h-full flex-1 flex-col justify-end"
+              >
+                <div className="flex h-full items-end justify-center gap-1">
+                  <div
+                    title={`Primary ${money(row.primary_value)}`}
+                    style={{ height: `${(row.primary_value / peak) * 100}%` }}
+                    className="w-1/3 rounded-t bg-brand"
+                  />
+                  <div
+                    title={`Secondary ${money(row.secondary_value)}`}
+                    style={{ height: `${(row.secondary_value / peak) * 100}%` }}
+                    className="w-1/3 rounded-t bg-emerald-400"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 sm:gap-4">
+            {months.map((row) => (
+              <span
+                key={row.month}
+                className="flex-1 pt-2 text-center text-[11px] text-slate-400"
+              >
+                {row.month.slice(2)}
+              </span>
+            ))}
+          </div>
+          <div className="mt-4 flex gap-5 text-xs text-slate-500">
+            <span>
+              <i className="mr-2 inline-block h-2 w-2 rounded-full bg-brand" />
+              Primary
+            </span>
+            <span>
+              <i className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-400" />
+              Secondary
+            </span>
+          </div>
+        </div>
+
+        <div className="card p-5">
+          <h2 className="font-bold">Top products</h2>
+          <p className="mt-1 text-xs text-slate-400">By secondary units sold</p>
+          <div className="mt-5 space-y-4">
+            {products.length === 0 && (
+              <p className="text-sm text-slate-400">No sales in this period.</p>
+            )}
+            {products.map((row) => (
+              <div key={row.id}>
+                <div className="flex justify-between gap-3 text-sm">
+                  <span className="truncate font-semibold">{row.name}</span>
+                  <span className="font-bold">
+                    {units(row.secondary_units)}
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 rounded-full bg-slate-100">
+                  <div
+                    className="h-1.5 rounded-full bg-brand"
+                    style={{
+                      width: `${(row.secondary_units / topUnits) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <h2 className="mb-1 mt-8 font-bold">Stock by distributor</h2>
+      <p className="mb-4 text-xs text-slate-400">
+        Units moved in the period, and stock held as at {to} (all primary less
+        all secondary up to that date)
+      </p>
+      <Table
+        head={[
+          "Distributor",
+          "City",
+          "Primary units",
+          "Secondary units",
+          "Stock",
+        ]}
+        empty={stock.length === 0 && "No distributors yet."}
+      >
+        {stock.map((row) => (
+          <tr key={row.id}>
+            <Td className="font-semibold">
+              {isAdmin ? (
+                <Link
+                  href={`/distributors/${row.id}`}
+                  className="hover:underline"
+                >
+                  {row.name}
+                </Link>
+              ) : (
+                row.name
+              )}
+            </Td>
+            <Td className="text-slate-500">{row.city}</Td>
+            <Td>{units(row.primary_units)}</Td>
+            <Td>{units(row.secondary_units)}</Td>
+            <Td>
+              <StockBadge stock={row.stock} />
+            </Td>
+          </tr>
+        ))}
+      </Table>
+    </Shell>
+  );
+}

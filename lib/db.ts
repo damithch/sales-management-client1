@@ -1,3 +1,54 @@
-import { neon } from "@neondatabase/serverless";
-export const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
-export const schema = `create table if not exists users (id uuid primary key default gen_random_uuid(), name text not null, email text unique not null, role text not null check (role in ('Developer','Admin','Sales Rep')), password_hash text, created_at timestamptz default now()); create table if not exists products (id uuid primary key default gen_random_uuid(), name text not null, sku text unique not null, category text, unit text, price numeric not null default 0); create table if not exists distributors (id uuid primary key default gen_random_uuid(), name text not null, city text, contact text, phone text); create table if not exists primary_sales (id uuid primary key default gen_random_uuid(), sale_date date not null, distributor_id uuid references distributors(id), product_id uuid references products(id), quantity integer not null, price numeric not null, created_by uuid references users(id)); create table if not exists secondary_sales (id uuid primary key default gen_random_uuid(), sale_date date not null, distributor_id uuid references distributors(id), product_id uuid references products(id), quantity integer not null, price numeric not null, created_by uuid references users(id)); create table if not exists audit_log (id uuid primary key default gen_random_uuid(), actor_id uuid references users(id), action text not null, entity_type text not null, entity_id uuid, before_data jsonb, after_data jsonb, created_at timestamptz default now());`;
+import { Pool, types, type PoolClient, type QueryResultRow } from "pg";
+
+// Dates stay as "YYYY-MM-DD" strings; numeric and bigint become numbers.
+types.setTypeParser(1082, (value) => value);
+types.setTypeParser(1700, (value) => Number(value));
+types.setTypeParser(20, (value) => Number(value));
+
+const globalForDb = globalThis as unknown as { pgPool?: Pool };
+
+function getPool() {
+  if (!globalForDb.pgPool) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL is not set");
+    }
+    globalForDb.pgPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 5,
+    });
+  }
+  return globalForDb.pgPool;
+}
+
+export type Db = Pick<PoolClient, "query">;
+
+export async function query<T extends QueryResultRow>(
+  text: string,
+  params: unknown[] = [],
+  db?: Db,
+): Promise<T[]> {
+  const result = await (db ?? getPool()).query<T>(text, params);
+  return result.rows;
+}
+
+export async function transaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("begin");
+    const result = await fn(client);
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function closePool() {
+  await globalForDb.pgPool?.end();
+  globalForDb.pgPool = undefined;
+}

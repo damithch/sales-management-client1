@@ -1,13 +1,38 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-:root { color-scheme: light; }
-* { box-sizing: border-box; }
-body { margin: 0; background: #f6f7fb; color: #172033; font-family: Arial, Helvetica, sans-serif; }
-button, input, select { font: inherit; }
-.card { @apply rounded-2xl border border-slate-200 bg-white shadow-sm; }
-.label { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500; }
-.input { @apply w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none ring-brand/20 focus:ring-4; }
-.btn { @apply inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition; }
-.btn-primary { @apply btn bg-brand text-white hover:bg-indigo-700; }
-.btn-secondary { @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200; }
+:root {
+  color-scheme: light;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: #f6f7fb;
+  color: #172033;
+  font-family: Arial, Helvetica, sans-serif;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+.card {
+  @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+}
+.label {
+  @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500;
+}
+.input {
+  @apply w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none ring-brand/20 focus:ring-4;
+}
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition;
+}
+.btn-primary {
+  @apply btn bg-brand text-white hover:bg-indigo-700;
+}
+.btn-secondary {
+  @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200;
+}

@@ -1,1 +1,102 @@
-import Link from "next/link"; import { Shell } from "@/components/shell"; import { distributors, primarySales, secondarySales, stockForDistributor } from "@/lib/data"; export default async function DistributorDetail({ params }: { params: Promise<{ id: string }> }) { const { id } = await params; const distributor = distributors.find(d=>d.id===id) ?? distributors[0]; const primary = primarySales.filter(s=>s.distributor===distributor.name); const secondary = secondarySales.filter(s=>s.distributor===distributor.name); return <Shell title={distributor.name}><div className="mb-5"><Link href="/distributors" className="text-sm font-semibold text-brand">← Back to distributors</Link></div><div className="grid gap-4 sm:grid-cols-3"><div className="card p-5"><div className="text-sm text-slate-500">Current stock</div><div className="mt-2 text-3xl font-bold">{stockForDistributor(distributor.name)}</div><div className="text-xs text-slate-400">units on hand</div></div><div className="card p-5"><div className="text-sm text-slate-500">Primary units</div><div className="mt-2 text-3xl font-bold">{primary.reduce((a,s)=>a+s.quantity,0)}</div></div><div className="card p-5"><div className="text-sm text-slate-500">Secondary units</div><div className="mt-2 text-3xl font-bold">{secondary.reduce((a,s)=>a+s.quantity,0)}</div></div></div><div className="card mt-6 overflow-hidden"><div className="border-b border-slate-100 p-5"><h2 className="font-bold">Sales history</h2><p className="text-sm text-slate-500">{distributor.city} · {distributor.contact} · {distributor.phone}</p></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="text-xs uppercase tracking-wide text-slate-400"><th className="px-5 py-4">Date</th><th className="px-5 py-4">Type</th><th className="px-5 py-4">Product</th><th className="px-5 py-4">Quantity</th></tr></thead><tbody>{[...primary.map(s=>({...s,type:"Primary"})), ...secondary.map(s=>({...s,type:"Secondary"}))].sort((a,b)=>b.date.localeCompare(a.date)).map(s=><tr key={s.id} className="border-t border-slate-50"><td className="px-5 py-4">{s.date}</td><td className="px-5 py-4"><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">{s.type}</span></td><td className="px-5 py-4">{s.product}</td><td className="px-5 py-4">{s.quantity}</td></tr>)}</tbody></table></div></div></Shell> }
+import { notFound } from "next/navigation";
+import { updateDistributor } from "@/app/actions";
+import { DistributorFields } from "@/components/distributor-fields";
+import { ActionForm } from "@/components/forms";
+import { ActiveCheckbox } from "@/components/product-fields";
+import { Shell } from "@/components/shell";
+import { StockBadge, Table, Td } from "@/components/ui";
+import { requireRole } from "@/lib/auth";
+import { money, parseId, units } from "@/lib/format";
+import {
+  getDistributor,
+  listSales,
+  stockByProduct,
+  type Sale,
+} from "@/lib/queries";
+
+function History({ title, sales }: { title: string; sales: Sale[] }) {
+  return (
+    <section>
+      <h2 className="mb-3 font-bold">{title}</h2>
+      <Table
+        head={["Date", "Product", "Quantity", "Value"]}
+        empty={sales.length === 0 && "Nothing recorded yet."}
+      >
+        {sales.map((sale) => (
+          <tr key={sale.id}>
+            <Td className="whitespace-nowrap text-slate-500">
+              {sale.sale_date}
+            </Td>
+            <Td>{sale.product}</Td>
+            <Td>{units(sale.quantity)}</Td>
+            <Td>{money(sale.quantity * sale.price)}</Td>
+          </tr>
+        ))}
+      </Table>
+    </section>
+  );
+}
+
+export default async function DistributorDetail({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const session = await requireRole("Admin");
+  const id = parseId((await params).id);
+  const distributor = id && (await getDistributor(id));
+  if (!distributor) notFound();
+
+  const [stock, primary, secondary] = await Promise.all([
+    stockByProduct(distributor.id),
+    listSales("primary", { distributorId: distributor.id }, 50),
+    listSales("secondary", { distributorId: distributor.id }, 50),
+  ]);
+
+  return (
+    <Shell session={session} title={distributor.name}>
+      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+        <ActionForm
+          action={updateDistributor.bind(null, distributor.id)}
+          submit="Save changes"
+        >
+          <h2 className="font-bold">Details</h2>
+          <DistributorFields distributor={distributor} />
+          <ActiveCheckbox
+            active={distributor.active}
+            label="Active (can be chosen on new sales)"
+          />
+        </ActionForm>
+        <div className="space-y-8">
+          <section>
+            <h2 className="mb-3 font-bold">Current stock by product</h2>
+            <Table
+              head={[
+                "Product",
+                "SKU",
+                "Primary units",
+                "Secondary units",
+                "Stock",
+              ]}
+              empty={stock.length === 0 && "No sales recorded yet."}
+            >
+              {stock.map((row) => (
+                <tr key={row.id}>
+                  <Td className="font-semibold">{row.name}</Td>
+                  <Td className="text-slate-500">{row.sku}</Td>
+                  <Td>{units(row.primary_units)}</Td>
+                  <Td>{units(row.secondary_units)}</Td>
+                  <Td>
+                    <StockBadge stock={row.stock} />
+                  </Td>
+                </tr>
+              ))}
+            </Table>
+          </section>
+          <History title="Latest primary sales" sales={primary} />
+          <History title="Latest secondary sales" sales={secondary} />
+        </div>
+      </div>
+    </Shell>
+  );
+}
