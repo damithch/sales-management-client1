@@ -1,0 +1,1 @@
+import { Sidebar } from "./sidebar"; import { Header } from "./header"; export function Shell({ children, title, action }: { children: React.ReactNode; title: string; action?: string }) { return <div className="flex min-h-screen"><Sidebar/><main className="min-w-0 flex-1"><Header title={title} action={action}/><div className="p-5 sm:p-8">{children}</div></main></div> }
