@@ -7,6 +7,7 @@ import {
   getSale,
   listBrands,
   listProducts,
+  listReps,
   listSales,
   listShops,
   type Product,
@@ -54,12 +55,16 @@ export async function SalesPage({
   const filters = await readFilters(searchParams);
   const copy = COPY[kind];
 
-  const [brands, products, shops, sales] = await Promise.all([
+  const [brands, products, shops, reps, sales] = await Promise.all([
     listBrands(),
     listProducts({ activeOnly: true }),
     kind === "secondary" ? listShops() : Promise.resolve(undefined),
+    kind === "secondary" && isAdmin ? listReps() : Promise.resolve(undefined),
     // Sales reps only ever see what they entered themselves.
-    listSales(kind, { ...filters, createdBy: isAdmin ? null : session.id }),
+    listSales(kind, {
+      ...filters,
+      createdBy: isAdmin ? filters.repId : session.id,
+    }),
   ]);
   const activeBrands = brands.filter((brand) => brand.active);
   const activeShops = shops?.filter((shop) => shop.active);
@@ -111,6 +116,8 @@ export async function SalesPage({
               brands={brands}
               shopId={filters.shopId}
               shops={shops}
+              repId={filters.repId}
+              reps={reps}
             />
             <ExportLink
               kind={kind}
@@ -119,6 +126,7 @@ export async function SalesPage({
                 to: filters.to,
                 brand: filters.brandId,
                 shop: filters.shopId,
+                rep: isAdmin ? filters.repId : null,
               }}
             />
           </div>

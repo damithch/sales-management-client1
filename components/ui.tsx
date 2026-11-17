@@ -143,7 +143,7 @@ export function EditLink({ href }: { href: string }) {
 type Option = { id: string; name: string };
 
 /**
- * Date range plus optional brand and shop filters, submitted as query
+ * Date range plus optional brand, shop and rep filters, submitted as query
  * parameters. A select is shown only when its options are passed.
  */
 export function Filters({
@@ -153,6 +153,8 @@ export function Filters({
   brands,
   shopId = null,
   shops,
+  repId = null,
+  reps,
 }: {
   from: string | null;
   to: string | null;
@@ -160,6 +162,8 @@ export function Filters({
   brands?: Option[];
   shopId?: string | null;
   shops?: Option[];
+  repId?: string | null;
+  reps?: Option[];
 }) {
   const select = (
     name: string,
@@ -202,6 +206,7 @@ export function Filters({
       </label>
       {brands && select("brand", "Brand", "All brands", brandId, brands)}
       {shops && select("shop", "Shop", "All shops", shopId, shops)}
+      {reps && select("rep", "Sales rep", "All reps", repId, reps)}
       <button className="btn-secondary">Apply</button>
     </form>
   );

@@ -38,6 +38,7 @@ export type Shop = {
   city: string;
   contact: string;
   phone: string;
+  credit_days: number;
   active: boolean;
 };
 
@@ -72,6 +73,7 @@ export type Filters = {
   to?: string | null;
   brandId?: string | null;
   shopId?: string | null;
+  repId?: string | null;
   createdBy?: string | null;
 };
 
@@ -136,7 +138,7 @@ export async function getProduct(id: string, db?: Db) {
 
 export function listShops(activeOnly = false) {
   return query<Shop>(
-    `select id, name, city, contact, phone, active from shops
+    `select id, name, city, contact, phone, credit_days, active from shops
      where active or not $1 order by name`,
     [activeOnly],
   );
@@ -144,7 +146,7 @@ export function listShops(activeOnly = false) {
 
 export async function getShop(id: string, db?: Db) {
   const [row] = await query<Shop>(
-    "select id, name, city, contact, phone, active from shops where id = $1",
+    "select id, name, city, contact, phone, credit_days, active from shops where id = $1",
     [id],
     db,
   );
@@ -339,6 +341,13 @@ export function monthlyTrend(
 }
 
 // ------------------------------------------------------------------- users
+
+/** Sales Reps, for the rep filter. Includes disabled ones so old sales stay findable. */
+export function listReps() {
+  return query<{ id: string; name: string }>(
+    "select id, name from users where role = 'Sales Rep' order by name",
+  );
+}
 
 export function listUsers(roles: Role[]) {
   return query<User>(

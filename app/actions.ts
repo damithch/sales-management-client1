@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { clearSession, getSession, requireRole, setSession } from "@/lib/auth";
 import type { Session } from "@/lib/auth";
 import { query, transaction, type Db } from "@/lib/db";
-import { parseDate, parseId, today } from "@/lib/format";
+import { getCollection, shopAccount } from "@/lib/debtors";
+import { money, parseDate, parseId, today } from "@/lib/format";
 import {
   hashPassword,
   MIN_PASSWORD_LENGTH,
@@ -348,13 +349,23 @@ export async function updateProduct(
 // ------------------------------------------------------------------ shops
 
 function readShop(form: FormData) {
+  const creditText = text(form, "credit_days");
   const shop = {
     name: text(form, "name"),
     city: text(form, "city"),
     contact: text(form, "contact"),
     phone: text(form, "phone"),
+    credit_days: creditText === "" ? 14 : Number(creditText),
   };
-  return shop.name ? shop : "Shop name is required.";
+  if (!shop.name) return "Shop name is required.";
+  if (
+    !Number.isInteger(shop.credit_days) ||
+    shop.credit_days < 0 ||
+    shop.credit_days > 365
+  ) {
+    return "Credit period must be a whole number of days from 0 to 365.";
+  }
+  return shop;
 }
 
 export async function createShop(
@@ -367,9 +378,9 @@ export async function createShop(
   try {
     await transaction(async (db) => {
       const { rows } = await db.query(
-        `insert into shops (name, city, contact, phone)
-         values ($1, $2, $3, $4) returning id`,
-        [shop.name, shop.city, shop.contact, shop.phone],
+        `insert into shops (name, city, contact, phone, credit_days)
+         values ($1, $2, $3, $4, $5) returning id`,
+        [shop.name, shop.city, shop.contact, shop.phone, shop.credit_days],
       );
       await audit(db, actor, "create", "shop", rows[0].id, null, shop);
     });
@@ -396,9 +407,18 @@ export async function updateShop(
       const before = await getShop(id, db);
       if (!before) return false;
       await db.query(
-        `update shops set name = $1, city = $2, contact = $3, phone = $4, active = $5
-         where id = $6`,
-        [after.name, after.city, after.contact, after.phone, after.active, id],
+        `update shops set name = $1, city = $2, contact = $3, phone = $4,
+                credit_days = $5, active = $6
+         where id = $7`,
+        [
+          after.name,
+          after.city,
+          after.contact,
+          after.phone,
+          after.credit_days,
+          after.active,
+          id,
+        ],
       );
       await audit(db, actor, "update", "shop", id, before, after);
       return true;
@@ -595,6 +615,90 @@ export async function deleteSale(kind: SaleKind, id: string) {
   });
   revalidatePath("/", "layout");
   redirect(SALE_PATH[kind]);
+}
+
+// ----------------------------------------------------------- collections
+
+const METHODS = ["cash", "cheque", "bank"] as const;
+
+/**
+ * Money collected from a shop. Sales Reps and Admins can record it; it pays
+ * off the shop's oldest unpaid credit sales first.
+ */
+export async function createCollection(
+  shopId: string,
+  _: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const actor = await requireRole("Sales Rep");
+  const shop = await getShop(shopId);
+  if (!shop) return { error: "Shop not found." };
+  const amount = Number(text(form, "amount").replace(/,/g, ""));
+  const date = parseDate(form.get("date"));
+  const method = text(form, "method");
+  const reference = text(form, "reference");
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { error: "Enter the amount collected." };
+  }
+  if (!date) return { error: "Enter a valid date." };
+  if (date > today()) return { error: "The date cannot be in the future." };
+  if (!(METHODS as readonly string[]).includes(method)) {
+    return { error: "Choose how it was paid." };
+  }
+  if (method !== "cash" && !reference) {
+    return {
+      error:
+        method === "cheque"
+          ? "Enter the cheque number."
+          : "Enter the bank transfer reference.",
+    };
+  }
+  const owed = (await shopAccount(shop.id, today())).outstanding;
+  const collection = {
+    shop_id: shop.id,
+    amount,
+    collected_on: date,
+    method,
+    reference,
+  };
+  await transaction(async (db) => {
+    const { rows } = await db.query(
+      `insert into collections (shop_id, amount, collected_on, method, reference, created_by)
+       values ($1, $2, $3, $4, $5, $6) returning id`,
+      [shop.id, amount, date, method, reference, actor.id],
+    );
+    await audit(
+      db,
+      actor,
+      "create",
+      "collection",
+      rows[0].id,
+      null,
+      collection,
+    );
+  });
+  revalidatePath("/", "layout");
+  const extra = amount - owed;
+  return {
+    ok:
+      extra > 0.005
+        ? `Collection saved. ${money(extra)} is more than ${shop.name} owed and is kept as an advance.`
+        : `Collection of ${money(amount)} saved.`,
+  };
+}
+
+/** Only Admins can remove a collection, e.g. one entered by mistake. */
+export async function deleteCollection(id: string) {
+  const actor = await requireRole("Admin");
+  const shopId = await transaction(async (db) => {
+    const before = await getCollection(id, db);
+    if (!before) return null;
+    await db.query("delete from collections where id = $1", [id]);
+    await audit(db, actor, "delete", "collection", id, before, null);
+    return before.shop_id;
+  });
+  revalidatePath("/", "layout");
+  redirect(shopId ? `/debtors/${shopId}` : "/debtors");
 }
 
 // ------------------------------------------------------------------ users

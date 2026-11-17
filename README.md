@@ -13,15 +13,22 @@ price falls back to cash), plus the MRP. Every sale records cash or credit
 and keeps the price it was entered at, so later price changes never alter
 past sales.
 
+**Debtors:** every credit sale to a shop is a debt, due after the shop's
+credit period (14 days unless changed on the shop). Collections are recorded
+per shop and pay off its oldest unpaid credit sales first, so how much of each
+sale is still owed, and how overdue it is, is calculated rather than stored.
+The Debtors page splits each shop's balance by age, and debts stay attributed
+to the rep who made the sale.
+
 Built with Next.js (App Router), Tailwind and Postgres.
 
 ## Roles
 
-| Role      | Can do                                                                                                                                |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Developer | Everything, plus the audit log. Manages Admins and Sales Reps. Never listed to anyone else.                                           |
-| Admin     | Brands, products, shops, primary sales, editing or deleting any sale, and managing Sales Reps.                                        |
-| Sales Rep | The dashboard and entering secondary sales at the Dealer price. Sees only their own entries and cannot edit, delete or change prices. |
+| Role      | Can do                                                                                                                                                      |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Developer | Everything, plus the audit log. Manages Admins and Sales Reps. Never listed to anyone else.                                                                 |
+| Admin     | Brands, products, shops, primary sales, editing or deleting any sale, and managing Sales Reps.                                                              |
+| Sales Rep | The dashboard, entering secondary sales at the Dealer price, and recording collections. Sees only their own sales and cannot edit, delete or change prices. |
 
 Roles are checked on the server in every page, server action and the export
 route. `proxy.ts` only redirects signed-out visitors to the login page.
@@ -59,6 +66,7 @@ sales, and prints the demo password. Do not run it on the client's database.
 - `db/schema.sql` and `db/migrations/` – tables
 - `lib/pricing.ts` – which price a sale defaults to
 - `lib/queries.ts` – every read, including the stock calculations
+- `lib/debtors.ts` – what each shop owes, its age and collections
 - `app/actions.ts` – every write, each with a role check and an audit log entry
 - `lib/auth.ts` – signed session cookie; the user is reloaded on each request,
   so disabling an account or changing its password ends its sessions at once
@@ -68,5 +76,5 @@ sales, and prints the demo password. Do not run it on the client's database.
 
 ## Not included yet
 
-Debtors (collections, overdue credit), invoices with several products, IMEI
-tracking, a distributor login, targets, returns and login rate limiting.
+Invoices with several products, IMEI tracking, a distributor login, targets,
+returns and login rate limiting.

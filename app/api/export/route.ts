@@ -1,6 +1,7 @@
 import writeExcelFile from "write-excel-file/node";
 import { getSession } from "@/lib/auth";
-import { parseDate, parseId } from "@/lib/format";
+import { debtorsByShop } from "@/lib/debtors";
+import { parseDate, parseId, today } from "@/lib/format";
 import {
   listBrands,
   listProducts,
@@ -29,6 +30,7 @@ export async function GET(request: Request) {
     to: parseDate(params.get("to")),
     brandId: parseId(params.get("brand")),
     shopId: parseId(params.get("shop")),
+    repId: parseId(params.get("rep")),
   };
 
   let rows: Cell[][];
@@ -60,7 +62,7 @@ export async function GET(request: Request) {
     if (kind === "primary" && !isAdmin) return forbidden();
     const sales = await listSales(
       kind as SaleKind,
-      { ...filters, createdBy: isAdmin ? null : session.id },
+      { ...filters, createdBy: isAdmin ? filters.repId : session.id },
       EXPORT_LIMIT,
     );
     rows = [
@@ -87,6 +89,41 @@ export async function GET(request: Request) {
         sale.price,
         sale.quantity * sale.price,
         sale.entered_by,
+      ]),
+    ];
+  } else if (kind === "debtors") {
+    // Reps export their own debtors; Admins all, or one rep's.
+    const repId = isAdmin ? filters.repId : session.id;
+    let debtors = await debtorsByShop({ asOf: today(), repId });
+    if (params.get("overdue") === "1") {
+      debtors = debtors.filter((row) => row.overdue > 0);
+    }
+    rows = [
+      [
+        "Shop",
+        "City",
+        "Phone",
+        "Credit days",
+        "Not yet due",
+        "1-30 days",
+        "31-60 days",
+        "61-90 days",
+        "Over 90 days",
+        "Total owed",
+        "Oldest overdue (days)",
+      ],
+      ...debtors.map((row) => [
+        row.shop,
+        row.city,
+        row.phone,
+        row.credit_days,
+        row.not_due,
+        row.d1_30,
+        row.d31_60,
+        row.d61_90,
+        row.d90_plus,
+        row.outstanding,
+        row.oldest_overdue_days,
       ]),
     ];
   } else if (kind === "products") {
@@ -135,12 +172,13 @@ export async function GET(request: Request) {
     if (!isAdmin) return forbidden();
     const shops = await listShops();
     rows = [
-      ["Shop", "City", "Contact", "Phone", "Status"],
+      ["Shop", "City", "Contact", "Phone", "Credit days", "Status"],
       ...shops.map((shop) => [
         shop.name,
         shop.city,
         shop.contact,
         shop.phone,
+        shop.credit_days,
         status(shop.active),
       ]),
     ];

@@ -27,6 +27,18 @@ export function ShopFields({ shop }: { shop?: Shop }) {
           className="input"
         />
       </Field>
+      <Field label="Credit period (days)">
+        <input
+          name="credit_days"
+          type="number"
+          min="0"
+          max="365"
+          step="1"
+          inputMode="numeric"
+          defaultValue={shop?.credit_days ?? 14}
+          className="input"
+        />
+      </Field>
     </>
   );
 }

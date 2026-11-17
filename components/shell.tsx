@@ -15,11 +15,10 @@ function navFor(session: Session): NavItem[] {
       { href: "/primary-sales", label: "Primary sales", icon: "primary" },
     );
   }
-  items.push({
-    href: "/secondary-sales",
-    label: "Secondary sales",
-    icon: "secondary",
-  });
+  items.push(
+    { href: "/secondary-sales", label: "Secondary sales", icon: "secondary" },
+    { href: "/debtors", label: "Debtors", icon: "debtors" },
+  );
   if (hasRole(session.role, "Admin")) {
     items.push({ href: "/users", label: "Users", icon: "users" });
   }

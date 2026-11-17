@@ -11,6 +11,7 @@ import {
   Store,
   Tags,
   Users,
+  Wallet,
 } from "lucide-react";
 
 const icons = {
@@ -20,6 +21,7 @@ const icons = {
   shops: Store,
   primary: ClipboardList,
   secondary: Boxes,
+  debtors: Wallet,
   users: Users,
   audit: History,
 };

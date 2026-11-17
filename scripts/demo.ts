@@ -1,6 +1,6 @@
 // Fills an EMPTY database with demo users, brands, products, shops, opening
-// stock and six months of purchases and sales, so the dashboard has something
-// to show. Not for production.
+// stock, six months of purchases and sales, and collections, so the dashboard
+// and debtors have something to show. Not for production.
 import { randomBytes } from "node:crypto";
 import { closePool, query } from "../lib/db";
 import { hashPassword } from "../lib/password";
@@ -143,6 +143,34 @@ async function main() {
           ],
         );
       }
+    }
+  }
+
+  // Shops pay most of their credit, so some debts are cleared, some are
+  // part-paid and some are overdue.
+  for (const [index, shopId] of shopIds.entries()) {
+    const [{ credit }] = await query<{ credit: number }>(
+      `select coalesce(sum(quantity * price), 0)::float8 as credit
+       from secondary_sales where shop_id = $1 and payment_terms = 'credit'`,
+      [shopId],
+    );
+    const share = [0.6, 0.75, 0.85, 0.9, 1][index % 5];
+    const total = Math.round(credit * share);
+    for (const [part, monthsAgo] of [4, 2, 1].entries()) {
+      const date = day(monthsAgo, 15);
+      if (!date || total === 0) continue;
+      await query(
+        `insert into collections (shop_id, amount, collected_on, method, reference, created_by)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [
+          shopId,
+          Math.round(total / 3),
+          date,
+          part === 1 ? "cheque" : "cash",
+          part === 1 ? `CHQ-${100200 + index * 10 + part}` : "",
+          reps[(index + part) % reps.length],
+        ],
+      );
     }
   }
 

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateShop } from "@/app/actions";
 import { ActionForm } from "@/components/forms";
@@ -34,7 +35,15 @@ export default async function ShopDetail({
           />
         </ActionForm>
         <section className="min-w-0">
-          <h2 className="mb-3 font-bold">Latest sales to this shop</h2>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="font-bold">Latest sales to this shop</h2>
+            <Link
+              href={`/debtors/${shop.id}`}
+              className="text-sm font-semibold text-brand hover:underline"
+            >
+              What this shop owes
+            </Link>
+          </div>
           <Table
             head={[
               "Date",

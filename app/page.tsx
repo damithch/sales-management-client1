@@ -3,6 +3,7 @@ import { Shell } from "@/components/shell";
 import { StockTable } from "@/components/stock-table";
 import { ExportLink, Filters, StatCard } from "@/components/ui";
 import { requireRole } from "@/lib/auth";
+import { debtorTotals } from "@/lib/debtors";
 import { readFilters, sixMonthsBefore, type SearchParams } from "@/lib/filters";
 import { money, today, units } from "@/lib/format";
 import {
@@ -27,7 +28,8 @@ export default async function Dashboard({
   const from = chosen.from ?? sixMonthsBefore(to);
   const filters = { from, to, brandId: chosen.brandId };
 
-  const [brands, purchases, sales, profit, stock, byProduct, trend] =
+  const isAdmin = hasRole(session.role, "Admin");
+  const [brands, purchases, sales, profit, stock, byProduct, trend, debts] =
     await Promise.all([
       listBrands(),
       salesTotals("primary", filters),
@@ -36,6 +38,8 @@ export default async function Dashboard({
       stockByProduct(filters),
       salesByProduct(filters),
       monthlyTrend(from, to, filters.brandId),
+      // Debts are as at today, whatever the date filter; reps see their own.
+      debtorTotals({ asOf: today(), repId: isAdmin ? null : session.id }),
     ]);
 
   const stockInHand = stock.reduce((sum, row) => sum + row.closing, 0);
@@ -69,7 +73,6 @@ export default async function Dashboard({
     1,
     ...months.flatMap((row) => [row.primary_value, row.secondary_value]),
   );
-  const isAdmin = hasRole(session.role, "Admin");
 
   return (
     <Shell session={session} title="Overview">
@@ -86,7 +89,9 @@ export default async function Dashboard({
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        className={`grid gap-4 sm:grid-cols-2 ${isAdmin ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}
+      >
         <StatCard
           label="Primary sales (purchases)"
           value={money(purchases.value)}
@@ -105,6 +110,17 @@ export default async function Dashboard({
           note={`Units as at ${to} · ${money(stockValue)} at RD cash price`}
           accent="bg-amber-500"
         />
+        <Link
+          href="/debtors?overdue=1"
+          className="rounded-2xl outline-none ring-brand/30 hover:ring-4 focus-visible:ring-4"
+        >
+          <StatCard
+            label="Overdue from shops"
+            value={money(debts.overdue)}
+            note={`${debts.overdue_shops} ${debts.overdue_shops === 1 ? "shop" : "shops"} · ${money(debts.outstanding)} owed in total · tap to see who`}
+            accent="bg-rose-500"
+          />
+        </Link>
         {isAdmin && (
           <StatCard
             label="Gross profit (estimate)"

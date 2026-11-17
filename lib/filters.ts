@@ -4,7 +4,7 @@ export type SearchParams = Promise<
   Record<string, string | string[] | undefined>
 >;
 
-/** Reads the from / to / brand / shop query parameters, ignoring invalid values. */
+/** Reads the from / to / brand / shop / rep query parameters, ignoring invalid values. */
 export async function readFilters(searchParams: SearchParams) {
   const params = await searchParams;
   return {
@@ -12,6 +12,7 @@ export async function readFilters(searchParams: SearchParams) {
     to: parseDate(params.to),
     brandId: parseId(params.brand),
     shopId: parseId(params.shop),
+    repId: parseId(params.rep),
   };
 }
 

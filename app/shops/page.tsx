@@ -27,7 +27,7 @@ export default async function Shops() {
             <ExportLink kind="shops" />
           </div>
           <Table
-            head={["Shop", "City", "Contact", "Phone", "Status"]}
+            head={["Shop", "City", "Contact", "Phone", "Credit", "Status"]}
             empty={shops.length === 0 && "No shops yet."}
           >
             {shops.map((shop) => (
@@ -43,6 +43,7 @@ export default async function Shops() {
                 <Td className="text-slate-500">{shop.city}</Td>
                 <Td>{shop.contact}</Td>
                 <Td>{shop.phone}</Td>
+                <Td className="whitespace-nowrap">{shop.credit_days} days</Td>
                 <Td>
                   <Badge tone={shop.active ? "green" : "slate"}>
                     {shop.active ? "Active" : "Inactive"}
