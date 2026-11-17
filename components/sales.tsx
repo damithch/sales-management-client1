@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createSale, deleteSale, updateSale } from "@/app/actions";
 import { requireRole } from "@/lib/auth";
@@ -10,6 +11,7 @@ import {
   listReps,
   listSales,
   listShops,
+  salesSummary,
   type Product,
   type SaleKind,
 } from "@/lib/queries";
@@ -17,7 +19,17 @@ import { hasRole } from "@/lib/roles";
 import { ActionForm, ConfirmButton } from "./forms";
 import { SaleFields, type SaleProductOption } from "./sale-fields";
 import { Shell } from "./shell";
-import { Badge, EditLink, ExportLink, Filters, Table, Td } from "./ui";
+import { FormPanel } from "./panel";
+import {
+  Badge,
+  EditLink,
+  ExportLink,
+  Filters,
+  ListCard,
+  Pager,
+  Table,
+  Td,
+} from "./ui";
 
 const COPY = {
   primary: {
@@ -42,6 +54,8 @@ const toOption = (product: Product): SaleProductOption => ({
   dealer_credit: product.dealer_credit,
 });
 
+const PAGE_SIZE = 50;
+
 /** List, filter and entry screen shared by primary and secondary sales. */
 export async function SalesPage({
   kind,
@@ -53,25 +67,21 @@ export async function SalesPage({
   const session = await requireRole(kind === "primary" ? "Admin" : "Sales Rep");
   const isAdmin = hasRole(session.role, "Admin");
   const filters = await readFilters(searchParams);
+  const page = Math.max(1, Math.floor(Number((await searchParams).page)) || 1);
   const copy = COPY[kind];
+  // Sales reps only ever see what they entered themselves.
+  const scope = { ...filters, createdBy: isAdmin ? filters.repId : session.id };
 
-  const [brands, products, shops, reps, sales] = await Promise.all([
+  const [brands, products, shops, reps, sales, summary] = await Promise.all([
     listBrands(),
     listProducts({ activeOnly: true }),
     kind === "secondary" ? listShops() : Promise.resolve(undefined),
     kind === "secondary" && isAdmin ? listReps() : Promise.resolve(undefined),
-    // Sales reps only ever see what they entered themselves.
-    listSales(kind, {
-      ...filters,
-      createdBy: isAdmin ? filters.repId : session.id,
-    }),
+    listSales(kind, scope, PAGE_SIZE, (page - 1) * PAGE_SIZE),
+    salesSummary(kind, scope),
   ]);
   const activeBrands = brands.filter((brand) => brand.active);
   const activeShops = shops?.filter((shop) => shop.active);
-  const total = sales.reduce(
-    (sum, sale) => sum + sale.quantity * sale.price,
-    0,
-  );
 
   const missing =
     activeBrands.length === 0 || products.length === 0
@@ -79,118 +89,168 @@ export async function SalesPage({
       : activeShops && activeShops.length === 0
         ? isAdmin
           ? "Add a shop first, on the Shops page."
-          : "No shops have been added yet. Ask the office to add them."
+          : "No shops yet. Ask the office to add them."
         : null;
+  const queryParams = {
+    from: filters.from,
+    to: filters.to,
+    brand: filters.brandId,
+    shop: filters.shopId,
+    rep: isAdmin ? filters.repId : null,
+  };
+  const product = (sale: (typeof sales)[number]) =>
+    [sale.brand, sale.model, sale.capacity].filter(Boolean).join(" ");
+  const terms = (sale: (typeof sales)[number]) => (
+    <Badge tone={sale.payment_terms === "cash" ? "green" : "amber"}>
+      {sale.payment_terms === "cash" ? "Cash" : "Credit"}
+    </Badge>
+  );
 
   return (
-    <Shell session={session} title={copy.title}>
-      <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-        {missing ? (
-          <div className="card space-y-2 p-5 text-sm">
-            <h2 className="font-bold">Record a sale</h2>
-            <p className="text-slate-500">{missing}</p>
-          </div>
-        ) : (
-          <ActionForm action={createSale.bind(null, kind)} submit="Save sale">
-            <h2 className="font-bold">Record a sale</h2>
-            <SaleFields
-              kind={kind}
-              today={today()}
-              brands={activeBrands}
-              products={products.map(toOption)}
-              shops={activeShops}
-              canEditPrice={isAdmin}
-            />
-          </ActionForm>
-        )}
-        <div className="min-w-0">
-          <p className="mb-3 text-sm text-slate-500">
-            {copy.intro}
-            {!isAdmin && " – showing your own entries"}
-          </p>
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <Filters
-              from={filters.from}
-              to={filters.to}
-              brandId={filters.brandId}
-              brands={brands}
-              shopId={filters.shopId}
-              shops={shops}
-              repId={filters.repId}
-              reps={reps}
-            />
-            <ExportLink
-              kind={kind}
-              params={{
-                from: filters.from,
-                to: filters.to,
-                brand: filters.brandId,
-                shop: filters.shopId,
-                rep: isAdmin ? filters.repId : null,
-              }}
-            />
-          </div>
-          <Table
-            head={[
-              "Date",
-              ...(kind === "secondary" ? ["Shop"] : []),
-              "Brand",
-              "Model",
-              "Qty",
-              "Payment",
-              "Unit price",
-              "Value",
-              "Entered by",
-              "",
-            ]}
-            empty={sales.length === 0 && "No sales match these filters."}
-          >
-            {sales.map((sale) => (
-              <tr key={sale.id}>
-                <Td className="whitespace-nowrap text-slate-500">
-                  {sale.sale_date}
-                </Td>
-                {kind === "secondary" && (
-                  <Td className="font-semibold">{sale.shop ?? "–"}</Td>
-                )}
-                <Td className={kind === "primary" ? "font-semibold" : ""}>
-                  {sale.brand ?? "–"}
-                </Td>
-                <Td>
-                  {sale.model}
-                  {sale.capacity && (
-                    <div className="text-xs text-slate-400">
-                      {sale.capacity}
-                    </div>
-                  )}
-                </Td>
-                <Td>{units(sale.quantity)}</Td>
-                <Td>
-                  <Badge
-                    tone={sale.payment_terms === "cash" ? "green" : "slate"}
-                  >
-                    {sale.payment_terms === "cash" ? "Cash" : "Credit"}
-                  </Badge>
-                </Td>
-                <Td className="whitespace-nowrap">{money(sale.price)}</Td>
-                <Td className="whitespace-nowrap">
-                  {money(sale.quantity * sale.price)}
-                </Td>
-                <Td className="text-slate-500">{sale.entered_by}</Td>
-                <Td>
-                  {isAdmin && <EditLink href={`${copy.path}/${sale.id}`} />}
-                </Td>
-              </tr>
-            ))}
-          </Table>
-          <p className="mt-3 text-xs text-slate-400">
-            {sales.length} {sales.length === 1 ? "sale" : "sales"},{" "}
-            {money(total)} in total
-            {sales.length === 500 &&
-              ". Showing the latest 500; narrow the dates or export to see all."}
-          </p>
-        </div>
+    <Shell
+      session={session}
+      title={copy.title}
+      description={copy.intro + (isAdmin ? "" : " · your own entries")}
+      actions={
+        <>
+          <ExportLink kind={kind} params={queryParams} />
+          {missing ? (
+            <span className="text-sm text-slate-500">{missing}</span>
+          ) : (
+            <FormPanel
+              label="Record sale"
+              title={kind === "primary" ? "Record a purchase" : "Record a sale"}
+              description={
+                kind === "primary"
+                  ? "Stock bought from the principal"
+                  : "Stock sold to a shop"
+              }
+            >
+              <ActionForm
+                action={createSale.bind(null, kind)}
+                submit="Save sale"
+                className="space-y-4"
+              >
+                <SaleFields
+                  kind={kind}
+                  today={today()}
+                  brands={activeBrands}
+                  products={products.map(toOption)}
+                  shops={activeShops}
+                  canEditPrice={isAdmin}
+                />
+              </ActionForm>
+            </FormPanel>
+          )}
+        </>
+      }
+    >
+      <div className="mb-4">
+        <Filters
+          from={filters.from}
+          to={filters.to}
+          brandId={filters.brandId}
+          brands={brands}
+          shopId={filters.shopId}
+          shops={shops}
+          repId={filters.repId}
+          reps={reps}
+        />
       </div>
+
+      <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-600">
+        <span>
+          <strong className="text-slate-900">
+            {summary.count.toLocaleString("en-US")}
+          </strong>{" "}
+          {summary.count === 1 ? "sale" : "sales"}
+        </span>
+        <span>
+          <strong className="text-slate-900">{units(summary.units)}</strong>{" "}
+          units
+        </span>
+        <span>
+          <strong className="text-slate-900">{money(summary.value)}</strong>{" "}
+          total
+        </span>
+      </div>
+
+      <Table
+        head={[
+          "Date",
+          ...(kind === "secondary" ? ["Shop"] : []),
+          "Product",
+          "Qty",
+          "Payment",
+          "Unit price",
+          "Value",
+          "Entered by",
+          "",
+        ]}
+        align={
+          kind === "secondary"
+            ? { 3: "right", 5: "right", 6: "right" }
+            : { 2: "right", 4: "right", 5: "right" }
+        }
+        empty={sales.length === 0 && "No sales match these filters."}
+        cards={sales.map((sale) => (
+          <ListCard
+            key={sale.id}
+            href={isAdmin ? `${copy.path}/${sale.id}` : undefined}
+            title={kind === "secondary" ? (sale.shop ?? "–") : product(sale)}
+            subtitle={
+              kind === "secondary"
+                ? product(sale)
+                : `${units(sale.quantity)} × ${money(sale.price)}`
+            }
+            value={money(sale.quantity * sale.price)}
+            valueNote={
+              kind === "secondary"
+                ? `${units(sale.quantity)} × ${money(sale.price)}`
+                : undefined
+            }
+          >
+            <span>{sale.sale_date}</span>
+            {terms(sale)}
+            {isAdmin && <span>by {sale.entered_by}</span>}
+          </ListCard>
+        ))}
+      >
+        {sales.map((sale) => (
+          <tr key={sale.id} className="hover:bg-slate-50">
+            <Td className="whitespace-nowrap text-slate-500">
+              {sale.sale_date}
+            </Td>
+            {kind === "secondary" && (
+              <Td className="font-medium">{sale.shop ?? "–"}</Td>
+            )}
+            <Td>
+              <span className="font-medium">{sale.brand}</span> {sale.model}
+              {sale.capacity && (
+                <span className="text-slate-500"> · {sale.capacity}</span>
+              )}
+            </Td>
+            <Td right>{units(sale.quantity)}</Td>
+            <Td>{terms(sale)}</Td>
+            <Td right>{money(sale.price)}</Td>
+            <Td right className="font-medium">
+              {money(sale.quantity * sale.price)}
+            </Td>
+            <Td className="whitespace-nowrap text-slate-500">
+              {sale.entered_by}
+            </Td>
+            <Td right>
+              {isAdmin && <EditLink href={`${copy.path}/${sale.id}`} />}
+            </Td>
+          </tr>
+        ))}
+      </Table>
+      <Pager
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={summary.count}
+        params={queryParams}
+      />
     </Shell>
   );
 }
@@ -218,6 +278,11 @@ export async function SaleEditPage({
     <Shell
       session={session}
       title={kind === "primary" ? "Edit primary sale" : "Edit secondary sale"}
+      description={
+        <Link href={COPY[kind].path} className="link">
+          ← {COPY[kind].title}
+        </Link>
+      }
     >
       <div className="max-w-md space-y-4">
         <ActionForm

@@ -75,31 +75,37 @@ export default async function Dashboard({
   );
 
   return (
-    <Shell session={session} title="Overview">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <Shell
+      session={session}
+      title="Overview"
+      description={`${from} to ${to}${filters.brandId ? ` · ${brands.find((b) => b.id === filters.brandId)?.name ?? ""}` : " · all brands"}`}
+      actions={
+        <ExportLink
+          kind="stock"
+          params={{ from, to, brand: filters.brandId }}
+        />
+      }
+    >
+      <div className="mb-6">
         <Filters
           from={from}
           to={to}
           brandId={filters.brandId}
           brands={brands}
         />
-        <ExportLink
-          kind="stock"
-          params={{ from, to, brand: filters.brandId }}
-        />
       </div>
 
       <div
-        className={`grid gap-4 sm:grid-cols-2 ${isAdmin ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}
+        className={`grid grid-cols-2 gap-3 sm:gap-4 ${isAdmin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}
       >
         <StatCard
-          label="Primary sales (purchases)"
+          label="Purchases (primary)"
           value={money(purchases.value)}
           note={`${units(purchases.units)} units bought`}
           accent="bg-brand"
         />
         <StatCard
-          label="Secondary sales"
+          label="Sales to shops"
           value={money(sales.value)}
           note={`${units(sales.units)} units sold to shops`}
           accent="bg-emerald-500"
@@ -107,34 +113,36 @@ export default async function Dashboard({
         <StatCard
           label="Stock in hand"
           value={units(stockInHand)}
-          note={`Units as at ${to} · ${money(stockValue)} at RD cash price`}
+          note={`Units at ${to} · worth ${money(stockValue)}`}
           accent="bg-amber-500"
         />
         <Link
           href="/debtors?overdue=1"
-          className="rounded-2xl outline-none ring-brand/30 hover:ring-4 focus-visible:ring-4"
+          className="rounded-xl outline-none ring-brand/30 hover:ring-4 focus-visible:ring-4"
         >
           <StatCard
             label="Overdue from shops"
             value={money(debts.overdue)}
-            note={`${debts.overdue_shops} ${debts.overdue_shops === 1 ? "shop" : "shops"} · ${money(debts.outstanding)} owed in total · tap to see who`}
+            note={`${debts.overdue_shops} ${debts.overdue_shops === 1 ? "shop" : "shops"} late · ${money(debts.outstanding)} owed in all`}
             accent="bg-rose-500"
           />
         </Link>
         {isAdmin && (
-          <StatCard
-            label="Gross profit (estimate)"
-            value={money(grossProfit)}
-            note={
-              (margin === null
-                ? "No costed sales yet"
-                : `${margin.toFixed(1)}% margin`) +
-              (profit.uncosted_units > 0
-                ? ` · ${units(profit.uncosted_units)} units without an RD price left out`
-                : "")
-            }
-            accent="bg-violet-500"
-          />
+          <div className="col-span-2 lg:col-span-1">
+            <StatCard
+              label="Gross profit (estimate)"
+              value={money(grossProfit)}
+              note={
+                (margin === null
+                  ? "No costed sales yet"
+                  : `${margin.toFixed(1)}% margin`) +
+                (profit.uncosted_units > 0
+                  ? ` · ${units(profit.uncosted_units)} units have no RD price`
+                  : "")
+              }
+              accent="bg-violet-500"
+            />
+          </div>
         )}
       </div>
 

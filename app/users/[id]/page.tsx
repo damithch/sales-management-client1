@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateUser } from "@/app/actions";
 import { ActionForm } from "@/components/forms";
@@ -21,7 +22,15 @@ export default async function EditUser({
   const user = id && (await getUser(id));
   if (!user || !manageable.includes(user.role)) notFound();
   return (
-    <Shell session={session} title="Edit user">
+    <Shell
+      session={session}
+      title="Edit user"
+      description={
+        <Link href="/users" className="link">
+          ← Users
+        </Link>
+      }
+    >
       <div className="max-w-md">
         <ActionForm
           action={updateUser.bind(null, user.id)}

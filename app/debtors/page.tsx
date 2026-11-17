@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { Shell } from "@/components/shell";
-import { ExportLink, StatCard, Table, Td } from "@/components/ui";
+import {
+  Badge,
+  ExportLink,
+  ListCard,
+  StatCard,
+  Table,
+  Td,
+} from "@/components/ui";
 import { requireRole } from "@/lib/auth";
 import { debtorsByShop, debtorTotals, type DebtorRow } from "@/lib/debtors";
 import type { SearchParams } from "@/lib/filters";
@@ -60,12 +67,22 @@ export default async function Debtors({
   );
 
   return (
-    <Shell session={session} title="Debtors">
-      <div className="grid gap-4 sm:grid-cols-3">
+    <Shell
+      session={session}
+      title="Debtors"
+      description={`What shops owe on credit sales, as at ${asOf}`}
+      actions={
+        <ExportLink
+          kind="debtors"
+          params={{ rep: repId, overdue: overdueOnly ? "1" : null }}
+        />
+      }
+    >
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
         <StatCard
           label="Overdue"
           value={money(totals.overdue)}
-          note={`${totals.overdue_shops} ${totals.overdue_shops === 1 ? "shop" : "shops"} past their credit period`}
+          note={`${totals.overdue_shops} ${totals.overdue_shops === 1 ? "shop" : "shops"} late`}
           accent="bg-rose-500"
         />
         <StatCard
@@ -74,12 +91,14 @@ export default async function Debtors({
           note="Unpaid credit sales, due or not"
           accent="bg-amber-500"
         />
-        <StatCard
-          label="Not yet due"
-          value={money(totals.outstanding - totals.overdue)}
-          note="Still within the credit period"
-          accent="bg-emerald-500"
-        />
+        <div className="col-span-2 sm:col-span-1">
+          <StatCard
+            label="Not yet due"
+            value={money(totals.outstanding - totals.overdue)}
+            note="Still within the credit period"
+            accent="bg-emerald-500"
+          />
+        </div>
       </div>
 
       <div className="mb-4 mt-6 flex flex-wrap items-center justify-between gap-3">
@@ -109,13 +128,9 @@ export default async function Debtors({
                   ))}
                 </select>
               </label>
-              <button className="btn-secondary">Apply</button>
+              <button className="btn-primary">Apply</button>
             </form>
           )}
-          <ExportLink
-            kind="debtors"
-            params={{ rep: repId, overdue: overdueOnly ? "1" : null }}
-          />
         </div>
       </div>
 
@@ -130,13 +145,40 @@ export default async function Debtors({
           "Total owed",
           "",
         ]}
+        align={{
+          1: "right",
+          2: "right",
+          3: "right",
+          4: "right",
+          5: "right",
+          6: "right",
+        }}
         empty={
           shown.length === 0 &&
           (overdueOnly ? "No shop is overdue." : "No shop owes anything.")
         }
+        cards={shown.map((row) => (
+          <ListCard
+            key={row.shop_id}
+            href={`/debtors/${row.shop_id}`}
+            title={row.shop}
+            subtitle={[row.city, row.phone].filter(Boolean).join(" · ")}
+            value={money(row.outstanding)}
+            valueNote="owed"
+          >
+            {row.overdue > 0 ? (
+              <Badge tone="red">
+                {money(row.overdue)} overdue · oldest {row.oldest_overdue_days}{" "}
+                days
+              </Badge>
+            ) : (
+              <Badge tone="green">Nothing overdue</Badge>
+            )}
+          </ListCard>
+        ))}
       >
         {shown.map((row) => (
-          <tr key={row.shop_id}>
+          <tr key={row.shop_id} className="hover:bg-slate-50">
             <Td className="font-semibold">
               <Link
                 href={`/debtors/${row.shop_id}`}
@@ -148,12 +190,12 @@ export default async function Debtors({
                 {[row.city, row.phone].filter(Boolean).join(" · ")}
               </div>
             </Td>
-            <Td className="whitespace-nowrap">{amount(row.not_due)}</Td>
-            <Td className="whitespace-nowrap">{amount(row.d1_30)}</Td>
-            <Td className="whitespace-nowrap">{amount(row.d31_60)}</Td>
-            <Td className="whitespace-nowrap">{amount(row.d61_90)}</Td>
-            <Td className="whitespace-nowrap">{amount(row.d90_plus)}</Td>
-            <Td className="whitespace-nowrap font-semibold">
+            <Td right>{amount(row.not_due)}</Td>
+            <Td right>{amount(row.d1_30)}</Td>
+            <Td right>{amount(row.d31_60)}</Td>
+            <Td right>{amount(row.d61_90)}</Td>
+            <Td right>{amount(row.d90_plus)}</Td>
+            <Td right className="font-semibold">
               {money(row.outstanding)}
               {row.oldest_overdue_days !== null && (
                 <div className="text-xs font-normal text-rose-600">
@@ -174,12 +216,12 @@ export default async function Debtors({
         {shown.length > 1 && (
           <tr className="bg-slate-50 font-semibold">
             <Td>Total</Td>
-            <Td className="whitespace-nowrap">{amount(sum("not_due"))}</Td>
-            <Td className="whitespace-nowrap">{amount(sum("d1_30"))}</Td>
-            <Td className="whitespace-nowrap">{amount(sum("d31_60"))}</Td>
-            <Td className="whitespace-nowrap">{amount(sum("d61_90"))}</Td>
-            <Td className="whitespace-nowrap">{amount(sum("d90_plus"))}</Td>
-            <Td className="whitespace-nowrap">{money(sum("outstanding"))}</Td>
+            <Td right>{amount(sum("not_due"))}</Td>
+            <Td right>{amount(sum("d1_30"))}</Td>
+            <Td right>{amount(sum("d31_60"))}</Td>
+            <Td right>{amount(sum("d61_90"))}</Td>
+            <Td right>{amount(sum("d90_plus"))}</Td>
+            <Td right>{money(sum("outstanding"))}</Td>
             <Td />
           </tr>
         )}

@@ -166,25 +166,48 @@ const SALE_SELECT = (kind: SaleKind) => `
   ${kind === "secondary" ? "left join shops sh on sh.id = s.shop_id" : ""}
   join users u on u.id = s.created_by`;
 
-export function listSales(kind: SaleKind, filters: Filters, limit = 500) {
+const SALE_WHERE = (kind: SaleKind) => `
+  where ($1::date is null or s.sale_date >= $1)
+    and ($2::date is null or s.sale_date <= $2)
+    and ($3::uuid is null or p.brand_id = $3)
+    and ($4::uuid is null or s.created_by = $4)
+    and ($5::uuid is null ${kind === "secondary" ? "or s.shop_id = $5" : ""})`;
+
+const saleParams = (kind: SaleKind, filters: Filters) => [
+  filters.from ?? null,
+  filters.to ?? null,
+  filters.brandId ?? null,
+  filters.createdBy ?? null,
+  kind === "secondary" ? (filters.shopId ?? null) : null,
+];
+
+/** Newest first. `limit` and `offset` page through the results. */
+export function listSales(
+  kind: SaleKind,
+  filters: Filters,
+  limit = 500,
+  offset = 0,
+) {
   return query<Sale>(
-    `${SALE_SELECT(kind)}
-     where ($1::date is null or s.sale_date >= $1)
-       and ($2::date is null or s.sale_date <= $2)
-       and ($3::uuid is null or p.brand_id = $3)
-       and ($4::uuid is null or s.created_by = $4)
-       ${kind === "secondary" ? "and ($6::uuid is null or s.shop_id = $6)" : "and $6::uuid is null"}
+    `${SALE_SELECT(kind)} ${SALE_WHERE(kind)}
      order by s.sale_date desc, s.created_at desc
-     limit $5`,
-    [
-      filters.from ?? null,
-      filters.to ?? null,
-      filters.brandId ?? null,
-      filters.createdBy ?? null,
-      limit,
-      kind === "secondary" ? (filters.shopId ?? null) : null,
-    ],
+     limit $6 offset $7`,
+    [...saleParams(kind, filters), limit, offset],
   );
+}
+
+export type SalesSummary = { count: number; units: number; value: number };
+
+/** How many sales match the filters, and their total units and value. */
+export async function salesSummary(kind: SaleKind, filters: Filters) {
+  const [row] = await query<SalesSummary>(
+    `select count(*)::int as count, coalesce(sum(s.quantity), 0)::int as units,
+            coalesce(sum(s.quantity * s.price), 0)::float8 as value
+     from ${SALE_TABLE[kind]} s join products p on p.id = s.product_id
+     ${SALE_WHERE(kind)}`,
+    saleParams(kind, filters),
+  );
+  return row;
 }
 
 export async function getSale(kind: SaleKind, id: string, db?: Db) {

@@ -2,15 +2,35 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createCollection, deleteCollection } from "@/app/actions";
 import { ActionForm, ConfirmButton } from "@/components/forms";
+import { FormPanel } from "@/components/panel";
 import { Shell } from "@/components/shell";
-import { Badge, Field, StatCard, Table, Td } from "@/components/ui";
+import { Badge, Field, ListCard, StatCard, Table, Td } from "@/components/ui";
 import { requireRole } from "@/lib/auth";
-import { listCollections, openInvoices, shopAccount } from "@/lib/debtors";
+import {
+  listCollections,
+  openInvoices,
+  shopAccount,
+  type Invoice,
+} from "@/lib/debtors";
 import { money, parseId, today, units } from "@/lib/format";
 import { getShop } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 
 const METHOD_LABEL = { cash: "Cash", cheque: "Cheque", bank: "Bank transfer" };
+
+const product = (invoice: Invoice) =>
+  [invoice.brand, invoice.model, invoice.capacity].filter(Boolean).join(" ");
+
+function DueBadge({ invoice }: { invoice: Invoice }) {
+  if (invoice.days_overdue > 0) {
+    return <Badge tone="red">{invoice.days_overdue} days overdue</Badge>;
+  }
+  return (
+    <Badge tone="slate">
+      {invoice.days_overdue === 0 ? "Due today" : `Due ${invoice.due_date}`}
+    </Badge>
+  );
+}
 
 export default async function ShopDebt({
   params,
@@ -34,16 +54,89 @@ export default async function ShopDebt({
     .reduce((sum, invoice) => sum + invoice.balance, 0);
 
   return (
-    <Shell session={session} title={shop.name}>
-      <p className="mb-4 text-sm text-slate-500">
-        <Link href="/debtors" className="text-brand hover:underline">
-          Debtors
-        </Link>{" "}
-        · {[shop.city, shop.contact, shop.phone].filter(Boolean).join(" · ")} ·{" "}
-        {shop.credit_days} days credit
-      </p>
-
-      <div className="grid gap-4 sm:grid-cols-3">
+    <Shell
+      session={session}
+      title={shop.name}
+      description={
+        <>
+          <Link href="/debtors" className="link">
+            ← Debtors
+          </Link>
+          {" · "}
+          {[
+            shop.city,
+            shop.contact,
+            shop.phone,
+            `${shop.credit_days} days credit`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </>
+      }
+      actions={
+        <FormPanel
+          label="Record collection"
+          title="Record a collection"
+          description={`Money collected from ${shop.name}`}
+        >
+          <ActionForm
+            action={createCollection.bind(null, shop.id)}
+            submit="Save collection"
+            className="space-y-4"
+          >
+            <div className="rounded-lg bg-slate-50 p-3 text-sm">
+              Owes <strong>{money(account.outstanding)}</strong>
+              {overdue > 0 && (
+                <>
+                  , of which{" "}
+                  <strong className="text-rose-700">{money(overdue)}</strong> is
+                  overdue
+                </>
+              )}
+            </div>
+            <Field label="Amount collected">
+              <input
+                required
+                name="amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                inputMode="decimal"
+                className="input"
+              />
+            </Field>
+            <Field label="Date collected">
+              <input
+                required
+                name="date"
+                type="date"
+                max={asOf}
+                defaultValue={asOf}
+                className="input"
+              />
+            </Field>
+            <Field label="Paid by">
+              <select name="method" defaultValue="cash" className="input">
+                <option value="cash">Cash</option>
+                <option value="cheque">Cheque</option>
+                <option value="bank">Bank transfer</option>
+              </select>
+            </Field>
+            <Field
+              label="Cheque no. or bank reference"
+              hint="Not needed for cash"
+            >
+              <input name="reference" className="input" />
+            </Field>
+            <p className="text-xs text-slate-500">
+              Pays off the oldest unpaid credit sales first.
+              {!isAdmin && " Once saved, only the office can remove it."}
+            </p>
+          </ActionForm>
+        </FormPanel>
+      }
+    >
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
         <StatCard
           label="Overdue"
           value={money(overdue)}
@@ -56,163 +149,127 @@ export default async function ShopDebt({
           note={
             account.advance > 0
               ? `${money(account.advance)} paid in advance`
-              : `${money(account.credit_sales)} sold on credit, ${money(account.collected)} collected`
+              : `of ${money(account.credit_sales)} sold on credit`
           }
           accent="bg-amber-500"
         />
-        <StatCard
-          label="Collected so far"
-          value={money(account.collected)}
-          note="All collections from this shop"
-          accent="bg-emerald-500"
-        />
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-[320px_1fr]">
-        <ActionForm
-          action={createCollection.bind(null, shop.id)}
-          submit="Save collection"
-        >
-          <h2 className="font-bold">Record a collection</h2>
-          <Field label="Amount collected">
-            <input
-              required
-              name="amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              inputMode="decimal"
-              className="input"
-            />
-          </Field>
-          <Field label="Date collected">
-            <input
-              required
-              name="date"
-              type="date"
-              max={asOf}
-              defaultValue={asOf}
-              className="input"
-            />
-          </Field>
-          <Field label="Paid by">
-            <select name="method" defaultValue="cash" className="input">
-              <option value="cash">Cash</option>
-              <option value="cheque">Cheque</option>
-              <option value="bank">Bank transfer</option>
-            </select>
-          </Field>
-          <Field label="Cheque no. or bank reference">
-            <input
-              name="reference"
-              className="input"
-              placeholder="Not needed for cash"
-            />
-          </Field>
-          <p className="text-xs text-slate-400">
-            Pays off the oldest unpaid credit sales first.
-            {!isAdmin && " Once saved, only the office can remove it."}
-          </p>
-        </ActionForm>
-
-        <div className="min-w-0 space-y-8">
-          <section>
-            <h2 className="mb-3 font-bold">Unpaid credit sales</h2>
-            <Table
-              head={[
-                "Sale date",
-                "Product",
-                "Still owed",
-                "Due",
-                "Amount",
-                "Paid",
-                "Rep",
-              ]}
-              empty={
-                invoices.length === 0 &&
-                "Nothing owed. All credit sales are paid."
-              }
-            >
-              {invoices.map((invoice) => (
-                <tr key={invoice.id}>
-                  <Td className="whitespace-nowrap text-slate-500">
-                    {invoice.sale_date}
-                  </Td>
-                  <Td>
-                    {[invoice.brand, invoice.model, invoice.capacity]
-                      .filter(Boolean)
-                      .join(" ")}
-                    <div className="text-xs text-slate-400">
-                      {units(invoice.quantity)} × {money(invoice.price)}
-                    </div>
-                  </Td>
-                  <Td className="whitespace-nowrap font-semibold">
-                    {money(invoice.balance)}
-                  </Td>
-                  <Td className="whitespace-nowrap">
-                    {invoice.days_overdue > 0 ? (
-                      <Badge tone="red">
-                        {invoice.days_overdue} days overdue
-                      </Badge>
-                    ) : (
-                      <span className="text-slate-500">
-                        {invoice.due_date}
-                        {invoice.days_overdue === 0 ? " (today)" : ""}
-                      </span>
-                    )}
-                  </Td>
-                  <Td className="whitespace-nowrap">{money(invoice.amount)}</Td>
-                  <Td className="whitespace-nowrap">
-                    {invoice.paid > 0 ? money(invoice.paid) : "–"}
-                  </Td>
-                  <Td className="text-slate-500">{invoice.rep}</Td>
-                </tr>
-              ))}
-            </Table>
-          </section>
-
-          <section>
-            <h2 className="mb-3 font-bold">Collections</h2>
-            <Table
-              head={[
-                "Date",
-                "Amount",
-                "Paid by",
-                "Reference",
-                "Entered by",
-                "",
-              ]}
-              empty={collections.length === 0 && "Nothing collected yet."}
-            >
-              {collections.map((collection) => (
-                <tr key={collection.id}>
-                  <Td className="whitespace-nowrap text-slate-500">
-                    {collection.collected_on}
-                  </Td>
-                  <Td className="whitespace-nowrap font-semibold">
-                    {money(collection.amount)}
-                  </Td>
-                  <Td>{METHOD_LABEL[collection.method]}</Td>
-                  <Td className="text-slate-500">
-                    {collection.reference || "–"}
-                  </Td>
-                  <Td className="text-slate-500">{collection.entered_by}</Td>
-                  <Td>
-                    {isAdmin && (
-                      <ConfirmButton
-                        action={deleteCollection.bind(null, collection.id)}
-                        message={`Delete this collection of ${money(collection.amount)}? The shop will owe it again.`}
-                      >
-                        Delete
-                      </ConfirmButton>
-                    )}
-                  </Td>
-                </tr>
-              ))}
-            </Table>
-          </section>
+        <div className="col-span-2 sm:col-span-1">
+          <StatCard
+            label="Collected so far"
+            value={money(account.collected)}
+            note="All collections from this shop"
+            accent="bg-emerald-500"
+          />
         </div>
       </div>
+
+      <h2 className="mb-3 mt-8 font-semibold">Unpaid credit sales</h2>
+      <Table
+        head={[
+          "Sale date",
+          "Product",
+          "Still owed",
+          "Due",
+          "Amount",
+          "Paid",
+          "Rep",
+        ]}
+        align={{ 2: "right", 4: "right", 5: "right" }}
+        empty={
+          invoices.length === 0 && "Nothing owed. All credit sales are paid."
+        }
+        cards={invoices.map((invoice) => (
+          <ListCard
+            key={invoice.id}
+            title={product(invoice)}
+            subtitle={`${invoice.sale_date} · ${units(invoice.quantity)} × ${money(invoice.price)}`}
+            value={money(invoice.balance)}
+            valueNote={
+              invoice.paid > 0 ? `of ${money(invoice.amount)}` : "owed"
+            }
+          >
+            <DueBadge invoice={invoice} />
+            <span>by {invoice.rep}</span>
+          </ListCard>
+        ))}
+      >
+        {invoices.map((invoice) => (
+          <tr key={invoice.id} className="hover:bg-slate-50">
+            <Td className="whitespace-nowrap text-slate-500">
+              {invoice.sale_date}
+            </Td>
+            <Td>
+              <span className="font-medium">{product(invoice)}</span>
+              <div className="text-xs text-slate-500">
+                {units(invoice.quantity)} × {money(invoice.price)}
+              </div>
+            </Td>
+            <Td right className="font-semibold">
+              {money(invoice.balance)}
+            </Td>
+            <Td>
+              <DueBadge invoice={invoice} />
+            </Td>
+            <Td right className="text-slate-500">
+              {money(invoice.amount)}
+            </Td>
+            <Td right className="text-slate-500">
+              {invoice.paid > 0 ? money(invoice.paid) : "–"}
+            </Td>
+            <Td className="whitespace-nowrap text-slate-500">{invoice.rep}</Td>
+          </tr>
+        ))}
+      </Table>
+
+      <h2 className="mb-3 mt-8 font-semibold">Collections</h2>
+      <Table
+        head={["Date", "Amount", "Paid by", "Reference", "Entered by", ""]}
+        align={{ 1: "right" }}
+        empty={collections.length === 0 && "Nothing collected yet."}
+        cards={collections.map((collection) => (
+          <ListCard
+            key={collection.id}
+            title={money(collection.amount)}
+            subtitle={`${collection.collected_on} · ${METHOD_LABEL[collection.method]}${collection.reference ? ` ${collection.reference}` : ""}`}
+          >
+            <span>by {collection.entered_by}</span>
+            {isAdmin && (
+              <ConfirmButton
+                action={deleteCollection.bind(null, collection.id)}
+                message={`Delete this collection of ${money(collection.amount)}? The shop will owe it again.`}
+              >
+                Delete
+              </ConfirmButton>
+            )}
+          </ListCard>
+        ))}
+      >
+        {collections.map((collection) => (
+          <tr key={collection.id} className="hover:bg-slate-50">
+            <Td className="whitespace-nowrap text-slate-500">
+              {collection.collected_on}
+            </Td>
+            <Td right className="font-semibold">
+              {money(collection.amount)}
+            </Td>
+            <Td>{METHOD_LABEL[collection.method]}</Td>
+            <Td className="text-slate-500">{collection.reference || "–"}</Td>
+            <Td className="whitespace-nowrap text-slate-500">
+              {collection.entered_by}
+            </Td>
+            <Td right>
+              {isAdmin && (
+                <ConfirmButton
+                  action={deleteCollection.bind(null, collection.id)}
+                  message={`Delete this collection of ${money(collection.amount)}? The shop will owe it again.`}
+                >
+                  Delete
+                </ConfirmButton>
+              )}
+            </Td>
+          </tr>
+        ))}
+      </Table>
     </Shell>
   );
 }

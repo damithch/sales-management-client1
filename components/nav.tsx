@@ -42,12 +42,12 @@ export function NavLinks({
 
   if (layout === "strip") {
     return (
-      <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 lg:hidden">
+      <nav className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur lg:hidden">
         {items.map(({ href, label }) => (
           <Link
             key={href}
             href={href}
-            className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${
+            className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
               isActive(href) ? "bg-indigo-50 text-brand" : "text-slate-500"
             }`}
           >
@@ -58,14 +58,14 @@ export function NavLinks({
     );
   }
   return (
-    <nav className="space-y-1">
+    <nav className="space-y-0.5">
       {items.map(({ href, label, icon }) => {
         const Icon = icons[icon];
         return (
           <Link
             key={href}
             href={href}
-            className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium ${
+            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${
               isActive(href)
                 ? "bg-indigo-50 text-brand"
                 : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"

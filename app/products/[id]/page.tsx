@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateProduct } from "@/app/actions";
 import { ActionForm } from "@/components/forms";
@@ -21,7 +22,15 @@ export default async function EditProduct({
     (brand) => brand.active || brand.id === product.brand_id,
   );
   return (
-    <Shell session={session} title={`Edit ${productLabel(product)}`}>
+    <Shell
+      session={session}
+      title={`Edit ${productLabel(product)}`}
+      description={
+        <Link href="/products" className="link">
+          ← Products
+        </Link>
+      }
+    >
       <div className="max-w-md">
         <ActionForm
           action={updateProduct.bind(null, product.id)}

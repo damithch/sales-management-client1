@@ -70,10 +70,13 @@ export function ProductFields({
         />
       </Field>
 
-      <fieldset className="space-y-3 rounded-xl border border-slate-200 p-3">
-        <legend className="px-1 text-xs font-semibold text-slate-500">
-          RD price (what the distributor pays)
-        </legend>
+      <div className="border-t border-slate-200 pt-4">
+        <div className="mb-3">
+          <div className="text-sm font-semibold">RD price</div>
+          <div className="text-xs text-slate-500">
+            What you pay the principal
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <PriceInput name="rd_cash" label="Cash" value={product?.rd_cash} />
           <PriceInput
@@ -82,11 +85,14 @@ export function ProductFields({
             value={product?.rd_credit}
           />
         </div>
-      </fieldset>
-      <fieldset className="space-y-3 rounded-xl border border-slate-200 p-3">
-        <legend className="px-1 text-xs font-semibold text-slate-500">
-          Dealer price (what shops pay)
-        </legend>
+      </div>
+      <div>
+        <div className="mb-3">
+          <div className="text-sm font-semibold">Dealer price</div>
+          <div className="text-xs text-slate-500">
+            What shops pay you. Leave credit blank if it is the same as cash.
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <PriceInput
             name="dealer_cash"
@@ -99,13 +105,10 @@ export function ProductFields({
             value={product?.dealer_credit}
           />
         </div>
-      </fieldset>
-      <p className="text-xs text-slate-400">
-        Leave a credit price blank if it is the same as cash.
-      </p>
+      </div>
       <PriceInput name="mrp" label="MRP (retail price)" value={product?.mrp} />
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 border-t border-slate-200 pt-4">
         <Field label="Opening stock">
           <input
             name="opening_qty"

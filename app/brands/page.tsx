@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { createBrand } from "@/app/actions";
 import { ActionForm } from "@/components/forms";
+import { FormPanel } from "@/components/panel";
 import { Shell } from "@/components/shell";
 import {
   Badge,
   ExportLink,
   Field,
+  ListCard,
   StockBadge,
   Table,
   Td,
@@ -24,58 +26,76 @@ export default async function Brands() {
     entry.stock += row.closing;
     byBrand.set(row.brand ?? "", entry);
   }
+  const summary = (name: string) =>
+    byBrand.get(name) ?? { models: 0, stock: 0 };
 
   return (
-    <Shell session={session} title="Brands">
-      <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-        <ActionForm action={createBrand} submit="Add brand">
-          <h2 className="font-bold">New brand</h2>
-          <p className="text-sm text-slate-500">
-            A brand you buy and sell, e.g. TCL or Alcatel. Add its products on
-            the Products page.
-          </p>
-          <Field label="Brand name">
-            <input required name="name" className="input" />
-          </Field>
-        </ActionForm>
-        <div>
-          <div className="mb-4 flex justify-end">
-            <ExportLink kind="brands" />
-          </div>
-          <Table
-            head={["Brand", "Models", "Stock in hand", "Status"]}
-            empty={brands.length === 0 && "No brands yet."}
+    <Shell
+      session={session}
+      title="Brands"
+      description="The brands you buy and sell. Open one to see its stock by model."
+      actions={
+        <>
+          <ExportLink kind="brands" />
+          <FormPanel
+            label="Add brand"
+            title="New brand"
+            description="Add its products afterwards on the Products page"
           >
-            {brands.map((brand) => {
-              const summary = byBrand.get(brand.name) ?? {
-                models: 0,
-                stock: 0,
-              };
-              return (
-                <tr key={brand.id}>
-                  <Td className="font-semibold">
-                    <Link
-                      href={`/brands/${brand.id}`}
-                      className="text-brand hover:underline"
-                    >
-                      {brand.name}
-                    </Link>
-                  </Td>
-                  <Td>{summary.models}</Td>
-                  <Td>
-                    <StockBadge stock={summary.stock} />
-                  </Td>
-                  <Td>
-                    <Badge tone={brand.active ? "green" : "slate"}>
-                      {brand.active ? "Active" : "Inactive"}
-                    </Badge>
-                  </Td>
-                </tr>
-              );
-            })}
-          </Table>
-        </div>
-      </div>
+            <ActionForm
+              action={createBrand}
+              submit="Add brand"
+              className="space-y-4"
+            >
+              <Field label="Brand name">
+                <input
+                  required
+                  name="name"
+                  placeholder="e.g. TCL"
+                  className="input"
+                />
+              </Field>
+            </ActionForm>
+          </FormPanel>
+        </>
+      }
+    >
+      <Table
+        head={["Brand", "Models", "Stock in hand", "Status"]}
+        align={{ 1: "right", 2: "right" }}
+        empty={brands.length === 0 && "No brands yet. Add your first brand."}
+        cards={brands.map((brand) => (
+          <ListCard
+            key={brand.id}
+            href={`/brands/${brand.id}`}
+            title={brand.name}
+            subtitle={`${summary(brand.name).models} models`}
+            value={<StockBadge stock={summary(brand.name).stock} />}
+            valueNote="in hand"
+          >
+            {!brand.active && <Badge tone="slate">Inactive</Badge>}
+          </ListCard>
+        ))}
+      >
+        {brands.map((brand) => (
+          <tr key={brand.id} className="hover:bg-slate-50">
+            <Td>
+              <Link href={`/brands/${brand.id}`} className="link">
+                {brand.name}
+              </Link>
+            </Td>
+            <Td right>{summary(brand.name).models}</Td>
+            <Td right>
+              <StockBadge stock={summary(brand.name).stock} />
+            </Td>
+            <Td>
+              <Badge tone={brand.active ? "green" : "slate"}>
+                {brand.active ? "Active" : "Inactive"}
+              </Badge>
+            </Td>
+          </tr>
+        ))}
+      </Table>
     </Shell>
   );
 }

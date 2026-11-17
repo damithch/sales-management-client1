@@ -40,7 +40,7 @@ export function ActionForm({
       }}
       className={className}
     >
-      <div key={state.saves} className="contents">
+      <div key={state.saves} className="space-y-4">
         {children}
       </div>
       {state.error && (
@@ -86,7 +86,7 @@ export function ConfirmButton({
         if (!window.confirm(message)) event.preventDefault();
       }}
     >
-      <button className="btn bg-rose-50 text-rose-700 hover:bg-rose-100">
+      <button className="btn px-2.5 py-1 text-rose-700 hover:bg-rose-50">
         {children}
       </button>
     </form>
