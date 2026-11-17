@@ -5,17 +5,19 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Boxes,
-  Building2,
   ClipboardList,
   History,
   Package,
+  Store,
+  Tags,
   Users,
 } from "lucide-react";
 
 const icons = {
   overview: BarChart3,
   products: Package,
-  distributors: Building2,
+  brands: Tags,
+  shops: Store,
   primary: ClipboardList,
   secondary: Boxes,
   users: Users,

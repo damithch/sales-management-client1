@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
-import type { Distributor } from "@/lib/queries";
 
 export function StatCard({
   label,
@@ -141,18 +140,46 @@ export function EditLink({ href }: { href: string }) {
   );
 }
 
-/** Date range and distributor filter, submitted as query parameters. */
+type Option = { id: string; name: string };
+
+/**
+ * Date range plus optional brand and shop filters, submitted as query
+ * parameters. A select is shown only when its options are passed.
+ */
 export function Filters({
   from,
   to,
-  distributorId,
-  distributors,
+  brandId = null,
+  brands,
+  shopId = null,
+  shops,
 }: {
   from: string | null;
   to: string | null;
-  distributorId: string | null;
-  distributors: Distributor[];
+  brandId?: string | null;
+  brands?: Option[];
+  shopId?: string | null;
+  shops?: Option[];
 }) {
+  const select = (
+    name: string,
+    label: string,
+    all: string,
+    value: string | null,
+    options: Option[],
+  ) => (
+    <label>
+      <span className="label">{label}</span>
+      <select name={name} defaultValue={value ?? ""} className="input">
+        <option value="">{all}</option>
+        {options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
   return (
     <form className="flex flex-wrap items-end gap-3">
       <label>
@@ -173,21 +200,8 @@ export function Filters({
           className="input"
         />
       </label>
-      <label>
-        <span className="label">Distributor</span>
-        <select
-          name="distributor"
-          defaultValue={distributorId ?? ""}
-          className="input"
-        >
-          <option value="">All distributors</option>
-          {distributors.map((distributor) => (
-            <option key={distributor.id} value={distributor.id}>
-              {distributor.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      {brands && select("brand", "Brand", "All brands", brandId, brands)}
+      {shops && select("shop", "Shop", "All shops", shopId, shops)}
       <button className="btn-secondary">Apply</button>
     </form>
   );

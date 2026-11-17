@@ -1,11 +1,16 @@
 "use client";
 
-import { useActionState } from "react";
+import { startTransition, useActionState } from "react";
 import type { FormState } from "@/app/actions";
 
 type Action = (state: FormState, form: FormData) => Promise<FormState>;
+type Counted = FormState & { saves: number };
 
-/** A form bound to a server action that shows the action's error or success message. */
+/**
+ * A form bound to a server action that shows the action's error or success
+ * message. On an error everything the user entered stays as it was; after a
+ * successful save the fields start again from their defaults.
+ */
 export function ActionForm({
   action,
   submit,
@@ -17,10 +22,27 @@ export function ActionForm({
   className?: string;
   children: React.ReactNode;
 }) {
-  const [state, formAction, pending] = useActionState(action, {});
+  const [state, formAction, pending] = useActionState<Counted, FormData>(
+    async (previous, form) => {
+      const result = await action(previous, form);
+      return { ...result, saves: previous.saves + (result.ok ? 1 : 0) };
+    },
+    { saves: 0 },
+  );
   return (
-    <form action={formAction} className={className}>
-      {children}
+    <form
+      // Submitting through onSubmit (not the action prop) stops React from
+      // clearing the form after every submission, including failed ones.
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        startTransition(() => formAction(form));
+      }}
+      className={className}
+    >
+      <div key={state.saves} className="contents">
+        {children}
+      </div>
       {state.error && (
         <p
           role="alert"

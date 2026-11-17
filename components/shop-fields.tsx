@@ -1,36 +1,29 @@
-import type { Distributor } from "@/lib/queries";
+import type { Shop } from "@/lib/queries";
 import { Field } from "./ui";
 
-export function DistributorFields({
-  distributor,
-}: {
-  distributor?: Distributor;
-}) {
+export function ShopFields({ shop }: { shop?: Shop }) {
   return (
     <>
       <Field label="Name">
         <input
           required
           name="name"
-          defaultValue={distributor?.name}
+          defaultValue={shop?.name}
+          placeholder="e.g. A Mobile"
           className="input"
         />
       </Field>
       <Field label="City">
-        <input name="city" defaultValue={distributor?.city} className="input" />
+        <input name="city" defaultValue={shop?.city} className="input" />
       </Field>
       <Field label="Contact person">
-        <input
-          name="contact"
-          defaultValue={distributor?.contact}
-          className="input"
-        />
+        <input name="contact" defaultValue={shop?.contact} className="input" />
       </Field>
       <Field label="Phone">
         <input
           name="phone"
           type="tel"
-          defaultValue={distributor?.phone}
+          defaultValue={shop?.phone}
           className="input"
         />
       </Field>

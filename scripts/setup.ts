@@ -1,5 +1,5 @@
-// Creates the tables and the Developer account. Safe to run more than once.
-import { readFileSync } from "node:fs";
+// Creates or updates the tables and the Developer account. Safe to run more than once.
+import { readdirSync, readFileSync } from "node:fs";
 import { closePool, query } from "../lib/db";
 import { hashPassword, MIN_PASSWORD_LENGTH } from "../lib/password";
 
@@ -15,6 +15,14 @@ async function main() {
   await query(
     readFileSync(new URL("../db/schema.sql", import.meta.url), "utf8"),
   );
+  // Migrations are idempotent and run in file-name order.
+  const dir = new URL("../db/migrations/", import.meta.url);
+  for (const file of readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()) {
+    await query(readFileSync(new URL(file, dir), "utf8"));
+    console.log(`Applied ${file}`);
+  }
 
   // Running it again resets the Developer's password to DEVELOPER_PASSWORD.
   await query(

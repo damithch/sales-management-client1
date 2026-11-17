@@ -12,14 +12,18 @@ import {
   verifyPassword,
 } from "@/lib/password";
 import {
-  getDistributor,
+  defaultPrice,
+  getBrand,
   getProduct,
   getSale,
+  getShop,
   getUser,
+  type PaymentTerms,
+  type Sale,
   SALE_TABLE,
   type SaleKind,
 } from "@/lib/queries";
-import { isRole, rolesBelow } from "@/lib/roles";
+import { hasRole, isRole, rolesBelow } from "@/lib/roles";
 
 export type FormState = { error?: string; ok?: string };
 
@@ -110,50 +114,195 @@ export async function changeOwnPassword(
   return { ok: "Password changed." };
 }
 
+// ----------------------------------------------------------------- brands
+
+export async function createBrand(
+  _: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const actor = await requireRole("Admin");
+  const name = text(form, "name");
+  if (!name) return { error: "Brand name is required." };
+  try {
+    await transaction(async (db) => {
+      const { rows } = await db.query(
+        "insert into brands (name) values ($1) returning id",
+        [name],
+      );
+      await audit(db, actor, "create", "brand", rows[0].id, null, { name });
+    });
+  } catch (error) {
+    if (isUniqueViolation(error))
+      return { error: "That brand already exists." };
+    throw error;
+  }
+  revalidatePath("/brands");
+  return { ok: `Added ${name}.` };
+}
+
+export async function updateBrand(
+  id: string,
+  _: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const actor = await requireRole("Admin");
+  const after = {
+    name: text(form, "name"),
+    active: form.get("active") === "on",
+  };
+  if (!after.name) return { error: "Brand name is required." };
+  try {
+    const found = await transaction(async (db) => {
+      const before = await getBrand(id, db);
+      if (!before) return false;
+      await db.query("update brands set name = $1, active = $2 where id = $3", [
+        after.name,
+        after.active,
+        id,
+      ]);
+      await audit(db, actor, "update", "brand", id, before, after);
+      return true;
+    });
+    if (!found) return { error: "Brand not found." };
+  } catch (error) {
+    if (isUniqueViolation(error))
+      return { error: "That brand already exists." };
+    throw error;
+  }
+  revalidatePath("/", "layout");
+  return { ok: "Saved." };
+}
+
 // --------------------------------------------------------------- products
 
-function readProduct(form: FormData) {
-  const price = Number(text(form, "price"));
-  const product = {
-    name: text(form, "name"),
-    sku: text(form, "sku"),
-    category: text(form, "category"),
-    unit: text(form, "unit"),
-    price,
-  };
-  if (!product.name || !product.sku) return "Name and SKU are required.";
-  if (!Number.isFinite(price) || price < 0) return "Price must be 0 or more.";
-  return product;
+/** Blank means "not set"; anything else must be a number of 0 or more. */
+function optionalPrice(form: FormData, name: string): number | null | "bad" {
+  const raw = text(form, name).replace(/,/g, "");
+  if (raw === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : "bad";
 }
+
+const PRICE_FIELDS = [
+  ["rd_cash", "RD cash price"],
+  ["rd_credit", "RD credit price"],
+  ["dealer_cash", "Dealer cash price"],
+  ["dealer_credit", "Dealer credit price"],
+  ["mrp", "MRP"],
+] as const;
+
+type ProductInput = {
+  brand_id: string;
+  model: string;
+  capacity: string;
+  sku: string;
+  unit: string;
+  rd_cash: number | null;
+  rd_credit: number | null;
+  dealer_cash: number | null;
+  dealer_credit: number | null;
+  mrp: number | null;
+  opening_qty: number;
+  opening_date: string | null;
+};
+
+async function readProduct(form: FormData): Promise<ProductInput | string> {
+  const brandId = parseId(form.get("brand_id"));
+  const model = text(form, "model");
+  if (!brandId || !model) return "Choose a brand and enter the model.";
+  const brand = await getBrand(brandId);
+  if (!brand) return "Choose a brand and enter the model.";
+
+  const prices: Record<string, number | null> = {};
+  for (const [field, label] of PRICE_FIELDS) {
+    const value = optionalPrice(form, field);
+    if (value === "bad") return `${label} must be a number of 0 or more.`;
+    prices[field] = value;
+  }
+
+  const openingText = text(form, "opening_qty");
+  const openingQty = openingText === "" ? 0 : Number(openingText);
+  if (!Number.isInteger(openingQty) || openingQty < 0) {
+    return "Opening stock must be a whole number of 0 or more.";
+  }
+  const openingDateText = text(form, "opening_date");
+  const openingDate = openingDateText ? parseDate(openingDateText) : null;
+  if (openingDateText && !openingDate)
+    return "Enter a valid opening stock date.";
+
+  const capacity = text(form, "capacity");
+  return {
+    brand_id: brandId,
+    model,
+    capacity,
+    sku: text(form, "sku") || makeSku(brand.name, model, capacity),
+    unit: text(form, "unit") || "Piece",
+    rd_cash: prices.rd_cash,
+    rd_credit: prices.rd_credit,
+    dealer_cash: prices.dealer_cash,
+    dealer_credit: prices.dealer_credit,
+    mrp: prices.mrp,
+    opening_qty: openingQty,
+    opening_date: openingDate,
+  };
+}
+
+/** "KXD", "A5", "3+8GB/64GB" -> "KXD-A5-3-8GB-64GB" */
+function makeSku(brand: string, model: string, capacity: string) {
+  return [brand, model, capacity]
+    .filter(Boolean)
+    .join("-")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+const productName = (product: ProductInput) =>
+  [product.model, product.capacity].filter(Boolean).join(" ");
+
+const productValues = (product: ProductInput) => [
+  productName(product),
+  product.brand_id,
+  product.model,
+  product.capacity,
+  product.sku,
+  product.unit,
+  product.rd_cash,
+  product.rd_credit,
+  product.dealer_cash,
+  product.dealer_credit,
+  product.mrp,
+  product.opening_qty,
+  product.opening_date,
+];
 
 export async function createProduct(
   _: FormState,
   form: FormData,
 ): Promise<FormState> {
   const actor = await requireRole("Admin");
-  const product = readProduct(form);
+  const product = await readProduct(form);
   if (typeof product === "string") return { error: product };
   try {
     await transaction(async (db) => {
       const { rows } = await db.query(
-        `insert into products (name, sku, category, unit, price)
-         values ($1, $2, $3, $4, $5) returning id`,
-        [
-          product.name,
-          product.sku,
-          product.category,
-          product.unit,
-          product.price,
-        ],
+        `insert into products (name, brand_id, model, capacity, sku, unit,
+           rd_cash, rd_credit, dealer_cash, dealer_credit, mrp, opening_qty, opening_date)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) returning id`,
+        productValues(product),
       );
       await audit(db, actor, "create", "product", rows[0].id, null, product);
     });
   } catch (error) {
-    if (isUniqueViolation(error)) return { error: "That SKU already exists." };
+    if (isUniqueViolation(error)) {
+      return {
+        error: `The code ${product.sku} is already used by another product.`,
+      };
+    }
     throw error;
   }
   revalidatePath("/products");
-  return { ok: `Added ${product.name}.` };
+  return { ok: `Added ${productName(product)} (${product.sku}).` };
 }
 
 export async function updateProduct(
@@ -162,119 +311,105 @@ export async function updateProduct(
   form: FormData,
 ): Promise<FormState> {
   const actor = await requireRole("Admin");
-  const product = readProduct(form);
+  const product = await readProduct(form);
   if (typeof product === "string") return { error: product };
-  const after = { ...product, active: form.get("active") === "on" };
+  const active = form.get("active") === "on";
   try {
     const found = await transaction(async (db) => {
       const before = await getProduct(id, db);
       if (!before) return false;
       await db.query(
-        `update products set name = $1, sku = $2, category = $3, unit = $4,
-                price = $5, active = $6 where id = $7`,
-        [
-          after.name,
-          after.sku,
-          after.category,
-          after.unit,
-          after.price,
-          after.active,
-          id,
-        ],
+        `update products set name = $1, brand_id = $2, model = $3, capacity = $4,
+                sku = $5, unit = $6, rd_cash = $7, rd_credit = $8, dealer_cash = $9,
+                dealer_credit = $10, mrp = $11, opening_qty = $12, opening_date = $13,
+                active = $14
+         where id = $15`,
+        [...productValues(product), active, id],
       );
-      await audit(db, actor, "update", "product", id, before, after);
+      await audit(db, actor, "update", "product", id, before, {
+        ...product,
+        active,
+      });
       return true;
     });
     if (!found) return { error: "Product not found." };
   } catch (error) {
-    if (isUniqueViolation(error)) return { error: "That SKU already exists." };
+    if (isUniqueViolation(error)) {
+      return {
+        error: `The code ${product.sku} is already used by another product.`,
+      };
+    }
     throw error;
   }
-  revalidatePath("/products");
+  revalidatePath("/", "layout");
   redirect("/products");
 }
 
-// ----------------------------------------------------------- distributors
+// ------------------------------------------------------------------ shops
 
-function readDistributor(form: FormData) {
-  const distributor = {
+function readShop(form: FormData) {
+  const shop = {
     name: text(form, "name"),
     city: text(form, "city"),
     contact: text(form, "contact"),
     phone: text(form, "phone"),
   };
-  return distributor.name ? distributor : "Name is required.";
+  return shop.name ? shop : "Shop name is required.";
 }
 
-export async function createDistributor(
+export async function createShop(
   _: FormState,
   form: FormData,
 ): Promise<FormState> {
   const actor = await requireRole("Admin");
-  const distributor = readDistributor(form);
-  if (typeof distributor === "string") return { error: distributor };
+  const shop = readShop(form);
+  if (typeof shop === "string") return { error: shop };
   try {
     await transaction(async (db) => {
       const { rows } = await db.query(
-        `insert into distributors (name, city, contact, phone)
+        `insert into shops (name, city, contact, phone)
          values ($1, $2, $3, $4) returning id`,
-        [
-          distributor.name,
-          distributor.city,
-          distributor.contact,
-          distributor.phone,
-        ],
+        [shop.name, shop.city, shop.contact, shop.phone],
       );
-      await audit(
-        db,
-        actor,
-        "create",
-        "distributor",
-        rows[0].id,
-        null,
-        distributor,
-      );
+      await audit(db, actor, "create", "shop", rows[0].id, null, shop);
     });
   } catch (error) {
-    if (isUniqueViolation(error)) {
-      return { error: "A distributor with that name already exists." };
-    }
+    if (isUniqueViolation(error))
+      return { error: "A shop with that name already exists." };
     throw error;
   }
-  revalidatePath("/distributors");
-  return { ok: `Added ${distributor.name}.` };
+  revalidatePath("/shops");
+  return { ok: `Added ${shop.name}.` };
 }
 
-export async function updateDistributor(
+export async function updateShop(
   id: string,
   _: FormState,
   form: FormData,
 ): Promise<FormState> {
   const actor = await requireRole("Admin");
-  const distributor = readDistributor(form);
-  if (typeof distributor === "string") return { error: distributor };
-  const after = { ...distributor, active: form.get("active") === "on" };
+  const shop = readShop(form);
+  if (typeof shop === "string") return { error: shop };
+  const after = { ...shop, active: form.get("active") === "on" };
   try {
     const found = await transaction(async (db) => {
-      const before = await getDistributor(id, db);
+      const before = await getShop(id, db);
       if (!before) return false;
       await db.query(
-        `update distributors set name = $1, city = $2, contact = $3, phone = $4,
-                active = $5 where id = $6`,
+        `update shops set name = $1, city = $2, contact = $3, phone = $4, active = $5
+         where id = $6`,
         [after.name, after.city, after.contact, after.phone, after.active, id],
       );
-      await audit(db, actor, "update", "distributor", id, before, after);
+      await audit(db, actor, "update", "shop", id, before, after);
       return true;
     });
-    if (!found) return { error: "Distributor not found." };
+    if (!found) return { error: "Shop not found." };
   } catch (error) {
-    if (isUniqueViolation(error)) {
-      return { error: "A distributor with that name already exists." };
-    }
+    if (isUniqueViolation(error))
+      return { error: "A shop with that name already exists." };
     throw error;
   }
-  revalidatePath("/distributors");
-  revalidatePath(`/distributors/${id}`);
+  revalidatePath("/", "layout");
   return { ok: "Saved." };
 }
 
@@ -285,35 +420,78 @@ const SALE_PATH: Record<SaleKind, string> = {
   secondary: "/secondary-sales",
 };
 
-/** Validates a sale form. A blank price falls back to the product's list price. */
-async function readSale(form: FormData) {
+type SaleInput = {
+  sale_date: string;
+  product_id: string;
+  shop_id: string | null;
+  quantity: number;
+  price: number;
+  payment_terms: PaymentTerms;
+};
+
+/**
+ * Validates a sale form. The price defaults to the product's RD price
+ * (primary) or Dealer price (secondary) for the chosen terms. Sales Reps
+ * always get the default price; only Admins can type a different one.
+ */
+async function readSale(
+  kind: SaleKind,
+  form: FormData,
+  actor: Session,
+  editing?: Sale,
+): Promise<SaleInput | string> {
   const date = parseDate(form.get("date"));
-  const distributorId = parseId(form.get("distributor_id"));
   const productId = parseId(form.get("product_id"));
+  const shopId = kind === "secondary" ? parseId(form.get("shop_id")) : null;
   const quantity = Number(text(form, "quantity"));
-  const priceText = text(form, "price");
+  const terms = text(form, "payment_terms");
 
   if (!date) return "Enter a valid date.";
   if (date > today()) return "The date cannot be in the future.";
-  if (!distributorId || !productId)
-    return "Choose a distributor and a product.";
+  if (!productId) return "Choose a product.";
+  if (kind === "secondary" && !shopId) return "Choose the shop.";
   if (!Number.isInteger(quantity) || quantity <= 0) {
     return "Quantity must be a whole number above 0.";
   }
-  const [distributor, product] = await Promise.all([
-    getDistributor(distributorId),
-    getProduct(productId),
-  ]);
-  if (!distributor || !product) return "Choose a distributor and a product.";
+  if (terms !== "cash" && terms !== "credit") return "Choose cash or credit.";
 
-  const price = priceText === "" ? product.price : Number(priceText);
-  if (!Number.isFinite(price) || price < 0) return "Price must be 0 or more.";
+  const [product, shop] = await Promise.all([
+    getProduct(productId),
+    shopId ? getShop(shopId) : null,
+  ]);
+  // Inactive products and shops can stay on a sale being edited, but cannot
+  // be chosen for a new one.
+  if (!product || (!product.active && product.id !== editing?.product_id)) {
+    return "Choose a product.";
+  }
+  if (
+    kind === "secondary" &&
+    (!shop || (!shop.active && shop.id !== editing?.shop_id))
+  ) {
+    return "Choose the shop.";
+  }
+
+  const tier = kind === "primary" ? "RD" : "Dealer";
+  const listPrice = defaultPrice(product, kind, terms);
+  let price: number;
+  const priceText = text(form, "price").replace(/,/g, "");
+  if (hasRole(actor.role, "Admin") && priceText !== "") {
+    price = Number(priceText);
+    if (!Number.isFinite(price) || price < 0) return "Price must be 0 or more.";
+  } else if (listPrice !== null) {
+    price = listPrice;
+  } else {
+    return hasRole(actor.role, "Admin")
+      ? `This product has no ${tier} price. Enter the unit price, or add it on the product.`
+      : `This product has no ${tier} price yet. Ask the office to add it.`;
+  }
   return {
     sale_date: date,
-    distributor_id: distributorId,
-    product_id: productId,
+    product_id: product.id,
+    shop_id: shopId,
     quantity,
     price,
+    payment_terms: terms,
   };
 }
 
@@ -324,22 +502,38 @@ export async function createSale(
 ): Promise<FormState> {
   // Primary sales are entered by Admins; secondary sales by anyone signed in.
   const actor = await requireRole(kind === "primary" ? "Admin" : "Sales Rep");
-  const sale = await readSale(form);
+  const sale = await readSale(kind, form, actor);
   if (typeof sale === "string") return { error: sale };
   await transaction(async (db) => {
-    const { rows } = await db.query(
-      `insert into ${SALE_TABLE[kind]}
-         (sale_date, distributor_id, product_id, quantity, price, created_by)
-       values ($1, $2, $3, $4, $5, $6) returning id`,
-      [
-        sale.sale_date,
-        sale.distributor_id,
-        sale.product_id,
-        sale.quantity,
-        sale.price,
-        actor.id,
-      ],
-    );
+    const { rows } =
+      kind === "primary"
+        ? await db.query(
+            `insert into primary_sales
+               (sale_date, product_id, quantity, price, payment_terms, created_by)
+             values ($1, $2, $3, $4, $5, $6) returning id`,
+            [
+              sale.sale_date,
+              sale.product_id,
+              sale.quantity,
+              sale.price,
+              sale.payment_terms,
+              actor.id,
+            ],
+          )
+        : await db.query(
+            `insert into secondary_sales
+               (sale_date, product_id, shop_id, quantity, price, payment_terms, created_by)
+             values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+            [
+              sale.sale_date,
+              sale.product_id,
+              sale.shop_id,
+              sale.quantity,
+              sale.price,
+              sale.payment_terms,
+              actor.id,
+            ],
+          );
     await audit(db, actor, "create", `${kind}_sale`, rows[0].id, null, sale);
   });
   revalidatePath("/", "layout");
@@ -353,22 +547,35 @@ export async function updateSale(
   form: FormData,
 ): Promise<FormState> {
   const actor = await requireRole("Admin");
-  const sale = await readSale(form);
+  const existing = await getSale(kind, id);
+  if (!existing) return { error: "Sale not found." };
+  const sale = await readSale(kind, form, actor, existing);
   if (typeof sale === "string") return { error: sale };
   const found = await transaction(async (db) => {
     const before = await getSale(kind, id, db);
     if (!before) return false;
     await db.query(
-      `update ${SALE_TABLE[kind]} set sale_date = $1, distributor_id = $2,
-              product_id = $3, quantity = $4, price = $5 where id = $6`,
-      [
-        sale.sale_date,
-        sale.distributor_id,
-        sale.product_id,
-        sale.quantity,
-        sale.price,
-        id,
-      ],
+      `update ${SALE_TABLE[kind]} set sale_date = $1, product_id = $2, quantity = $3,
+              price = $4, payment_terms = $5 ${kind === "secondary" ? ", shop_id = $7" : ""}
+       where id = $6`,
+      kind === "secondary"
+        ? [
+            sale.sale_date,
+            sale.product_id,
+            sale.quantity,
+            sale.price,
+            sale.payment_terms,
+            id,
+            sale.shop_id,
+          ]
+        : [
+            sale.sale_date,
+            sale.product_id,
+            sale.quantity,
+            sale.price,
+            sale.payment_terms,
+            id,
+          ],
     );
     await audit(db, actor, "update", `${kind}_sale`, id, before, sale);
     return true;

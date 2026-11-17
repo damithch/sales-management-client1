@@ -1,22 +1,17 @@
 import Link from "next/link";
 import { Shell } from "@/components/shell";
-import {
-  ExportLink,
-  Filters,
-  StatCard,
-  StockBadge,
-  Table,
-  Td,
-} from "@/components/ui";
+import { StockTable } from "@/components/stock-table";
+import { ExportLink, Filters, StatCard } from "@/components/ui";
 import { requireRole } from "@/lib/auth";
 import { readFilters, sixMonthsBefore, type SearchParams } from "@/lib/filters";
 import { money, today, units } from "@/lib/format";
 import {
-  listDistributors,
+  listBrands,
   monthlyTrend,
+  salesByProduct,
   salesTotals,
-  stockByDistributor,
-  topProducts,
+  secondaryProfit,
+  stockByProduct,
 } from "@/lib/queries";
 import { hasRole } from "@/lib/roles";
 
@@ -30,72 +25,107 @@ export default async function Dashboard({
   // Default view: the last six calendar months up to today.
   const to = chosen.to ?? today();
   const from = chosen.from ?? sixMonthsBefore(to);
-  const filters = { from, to, distributorId: chosen.distributorId };
+  const filters = { from, to, brandId: chosen.brandId };
 
-  const [distributors, primary, secondary, stock, products, trend] =
+  const [brands, purchases, sales, profit, stock, byProduct, trend] =
     await Promise.all([
-      listDistributors(),
+      listBrands(),
       salesTotals("primary", filters),
       salesTotals("secondary", filters),
-      stockByDistributor(filters),
-      topProducts(filters),
-      monthlyTrend(from, to, filters.distributorId),
+      secondaryProfit(filters),
+      stockByProduct(filters),
+      salesByProduct(filters),
+      monthlyTrend(from, to, filters.brandId),
     ]);
 
-  const totalStock = stock.reduce((sum, row) => sum + row.stock, 0);
+  const stockInHand = stock.reduce((sum, row) => sum + row.closing, 0);
+  const stockValue = stock.reduce(
+    (sum, row) => sum + Math.max(row.closing, 0) * (row.rd_cash ?? 0),
+    0,
+  );
+  const grossProfit = profit.revenue - profit.cost;
+  const margin =
+    profit.revenue > 0 ? (grossProfit / profit.revenue) * 100 : null;
+
+  // Top products, grouped by brand, brands ordered by units sold.
+  const brandGroups = new Map<
+    string,
+    { units: number; rows: typeof byProduct }
+  >();
+  for (const row of byProduct) {
+    const key = row.brand ?? "No brand";
+    const group = brandGroups.get(key) ?? { units: 0, rows: [] };
+    group.units += row.sold_units;
+    group.rows.push(row);
+    brandGroups.set(key, group);
+  }
+  const groups = [...brandGroups.entries()].sort(
+    (a, b) => b[1].units - a[1].units,
+  );
+  const topUnits = Math.max(1, ...byProduct.map((row) => row.sold_units));
+
   const months = trend.slice(-12);
   const peak = Math.max(
     1,
     ...months.flatMap((row) => [row.primary_value, row.secondary_value]),
   );
-  const topUnits = Math.max(1, ...products.map((row) => row.secondary_units));
   const isAdmin = hasRole(session.role, "Admin");
 
   return (
     <Shell session={session} title="Overview">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <Filters {...filters} distributors={distributors} />
+        <Filters
+          from={from}
+          to={to}
+          brandId={filters.brandId}
+          brands={brands}
+        />
         <ExportLink
           kind="stock"
-          params={{ from, to, distributor: filters.distributorId }}
+          params={{ from, to, brand: filters.brandId }}
         />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Primary sales"
-          value={money(primary.value)}
-          note={`${units(primary.units)} units to distributors`}
+          label="Primary sales (purchases)"
+          value={money(purchases.value)}
+          note={`${units(purchases.units)} units bought`}
           accent="bg-brand"
         />
         <StatCard
           label="Secondary sales"
-          value={money(secondary.value)}
-          note={`${units(secondary.units)} units sold on`}
+          value={money(sales.value)}
+          note={`${units(sales.units)} units sold to shops`}
           accent="bg-emerald-500"
         />
         <StatCard
-          label="Stock at distributors"
-          value={units(totalStock)}
-          note={`Units held as at ${to}`}
+          label="Stock in hand"
+          value={units(stockInHand)}
+          note={`Units as at ${to} · ${money(stockValue)} at RD cash price`}
           accent="bg-amber-500"
         />
-        <StatCard
-          label="Sell-through"
-          value={
-            primary.units > 0
-              ? `${Math.round((secondary.units / primary.units) * 100)}%`
-              : "–"
-          }
-          note="Secondary units as a share of primary"
-          accent="bg-violet-500"
-        />
+        {isAdmin && (
+          <StatCard
+            label="Gross profit (estimate)"
+            value={money(grossProfit)}
+            note={
+              (margin === null
+                ? "No costed sales yet"
+                : `${margin.toFixed(1)}% margin`) +
+              (profit.uncosted_units > 0
+                ? ` · ${units(profit.uncosted_units)} units without an RD price left out`
+                : "")
+            }
+            accent="bg-violet-500"
+          />
+        )}
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <div className="card p-5">
           <h2 className="font-bold">Monthly trend</h2>
-          <p className="mt-1 text-xs text-slate-400">Sales value per month</p>
+          <p className="mt-1 text-xs text-slate-400">Value per month</p>
           <div className="mt-4 flex h-56 items-end gap-2 border-b border-slate-100 sm:gap-4">
             {months.map((row) => (
               <div
@@ -140,27 +170,45 @@ export default async function Dashboard({
         </div>
 
         <div className="card p-5">
-          <h2 className="font-bold">Top products</h2>
-          <p className="mt-1 text-xs text-slate-400">By secondary units sold</p>
-          <div className="mt-5 space-y-4">
-            {products.length === 0 && (
+          <h2 className="font-bold">Top products by brand</h2>
+          <p className="mt-1 text-xs text-slate-400">Units sold to shops</p>
+          <div className="mt-5 space-y-5">
+            {groups.length === 0 && (
               <p className="text-sm text-slate-400">No sales in this period.</p>
             )}
-            {products.map((row) => (
-              <div key={row.id}>
-                <div className="flex justify-between gap-3 text-sm">
-                  <span className="truncate font-semibold">{row.name}</span>
-                  <span className="font-bold">
-                    {units(row.secondary_units)}
-                  </span>
+            {groups.map(([brand, group]) => (
+              <div key={brand}>
+                <div className="mb-2 flex justify-between text-xs font-bold uppercase tracking-wide text-slate-500">
+                  <span>{brand}</span>
+                  <span>{units(group.units)}</span>
                 </div>
-                <div className="mt-1 h-1.5 rounded-full bg-slate-100">
-                  <div
-                    className="h-1.5 rounded-full bg-brand"
-                    style={{
-                      width: `${(row.secondary_units / topUnits) * 100}%`,
-                    }}
-                  />
+                <div className="space-y-3">
+                  {group.rows.slice(0, 5).map((row) => (
+                    <div key={row.id}>
+                      <div className="flex justify-between gap-3 text-sm">
+                        <span className="truncate font-semibold">
+                          {row.model}
+                          {row.capacity && (
+                            <span className="font-normal text-slate-400">
+                              {" "}
+                              {row.capacity}
+                            </span>
+                          )}
+                        </span>
+                        <span className="font-bold">
+                          {units(row.sold_units)}
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-slate-100">
+                        <div
+                          className="h-1.5 rounded-full bg-brand"
+                          style={{
+                            width: `${(row.sold_units / topUnits) * 100}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -168,44 +216,22 @@ export default async function Dashboard({
         </div>
       </div>
 
-      <h2 className="mb-1 mt-8 font-bold">Stock by distributor</h2>
+      <h2 className="mb-1 mt-8 font-bold">Stock in hand by model</h2>
       <p className="mb-4 text-xs text-slate-400">
-        Units moved in the period, and stock held as at {to} (all primary less
-        all secondary up to that date)
+        Opening stock at {from}, plus purchases, less sales to shops, gives
+        stock in hand at {to}.
+        {isAdmin && (
+          <>
+            {" "}
+            Set opening stock on each{" "}
+            <Link href="/products" className="text-brand hover:underline">
+              product
+            </Link>
+            .
+          </>
+        )}
       </p>
-      <Table
-        head={[
-          "Distributor",
-          "City",
-          "Primary units",
-          "Secondary units",
-          "Stock",
-        ]}
-        empty={stock.length === 0 && "No distributors yet."}
-      >
-        {stock.map((row) => (
-          <tr key={row.id}>
-            <Td className="font-semibold">
-              {isAdmin ? (
-                <Link
-                  href={`/distributors/${row.id}`}
-                  className="hover:underline"
-                >
-                  {row.name}
-                </Link>
-              ) : (
-                row.name
-              )}
-            </Td>
-            <Td className="text-slate-500">{row.city}</Td>
-            <Td>{units(row.primary_units)}</Td>
-            <Td>{units(row.secondary_units)}</Td>
-            <Td>
-              <StockBadge stock={row.stock} />
-            </Td>
-          </tr>
-        ))}
-      </Table>
+      <StockTable rows={stock} />
     </Shell>
   );
 }

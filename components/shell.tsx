@@ -9,8 +9,9 @@ function navFor(session: Session): NavItem[] {
   const items: NavItem[] = [{ href: "/", label: "Overview", icon: "overview" }];
   if (hasRole(session.role, "Admin")) {
     items.push(
+      { href: "/brands", label: "Brands", icon: "brands" },
       { href: "/products", label: "Products", icon: "products" },
-      { href: "/distributors", label: "Distributors", icon: "distributors" },
+      { href: "/shops", label: "Shops", icon: "shops" },
       { href: "/primary-sales", label: "Primary sales", icon: "primary" },
     );
   }

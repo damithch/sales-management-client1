@@ -2,11 +2,12 @@ import writeExcelFile from "write-excel-file/node";
 import { getSession } from "@/lib/auth";
 import { parseDate, parseId } from "@/lib/format";
 import {
-  listDistributors,
+  listBrands,
   listProducts,
   listSales,
+  listShops,
   listUsers,
-  stockByDistributor,
+  stockByProduct,
   type SaleKind,
 } from "@/lib/queries";
 import { hasRole, rolesBelow } from "@/lib/roles";
@@ -14,6 +15,7 @@ import { hasRole, rolesBelow } from "@/lib/roles";
 type Cell = string | number | null;
 
 const EXPORT_LIMIT = 100_000;
+const status = (active: boolean) => (active ? "Active" : "Inactive");
 
 export async function GET(request: Request) {
   const session = await getSession();
@@ -25,20 +27,33 @@ export async function GET(request: Request) {
   const filters = {
     from: parseDate(params.get("from")),
     to: parseDate(params.get("to")),
-    distributorId: parseId(params.get("distributor")),
+    brandId: parseId(params.get("brand")),
+    shopId: parseId(params.get("shop")),
   };
 
   let rows: Cell[][];
   if (kind === "stock") {
-    const stock = await stockByDistributor(filters);
+    const stock = await stockByProduct(filters);
     rows = [
-      ["Distributor", "City", "Primary units", "Secondary units", "Stock"],
+      [
+        "Brand",
+        "Model",
+        "Capacity",
+        "Code",
+        "Opening",
+        "Purchased",
+        "Sold",
+        "Stock in hand",
+      ],
       ...stock.map((row) => [
-        row.name,
-        row.city,
-        row.primary_units,
-        row.secondary_units,
-        row.stock,
+        row.brand,
+        row.model,
+        row.capacity,
+        row.sku,
+        row.opening,
+        row.purchased,
+        row.sold,
+        row.closing,
       ]),
     ];
   } else if (kind === "primary" || kind === "secondary") {
@@ -51,18 +66,24 @@ export async function GET(request: Request) {
     rows = [
       [
         "Date",
-        "Distributor",
-        "Product",
+        ...(kind === "secondary" ? ["Shop"] : []),
+        "Brand",
+        "Model",
+        "Capacity",
         "Quantity",
+        "Payment",
         "Unit price",
         "Value",
         "Entered by",
       ],
       ...sales.map((sale) => [
         sale.sale_date,
-        sale.distributor,
-        sale.product,
+        ...(kind === "secondary" ? [sale.shop] : []),
+        sale.brand,
+        sale.model,
+        sale.capacity,
         sale.quantity,
+        sale.payment_terms === "cash" ? "Cash" : "Credit",
         sale.price,
         sale.quantity * sale.price,
         sale.entered_by,
@@ -70,29 +91,57 @@ export async function GET(request: Request) {
     ];
   } else if (kind === "products") {
     if (!isAdmin) return forbidden();
-    const products = await listProducts();
+    const products = await listProducts({ brandId: filters.brandId });
     rows = [
-      ["Name", "SKU", "Category", "Unit", "List price", "Status"],
+      [
+        "Brand",
+        "Model",
+        "Capacity",
+        "Code",
+        "Unit",
+        "RD cash",
+        "RD credit",
+        "Dealer cash",
+        "Dealer credit",
+        "MRP",
+        "Opening stock",
+        "Opening date",
+        "Status",
+      ],
       ...products.map((product) => [
-        product.name,
+        product.brand,
+        product.model,
+        product.capacity,
         product.sku,
-        product.category,
         product.unit,
-        product.price,
-        product.active ? "Active" : "Inactive",
+        product.rd_cash,
+        product.rd_credit,
+        product.dealer_cash,
+        product.dealer_credit,
+        product.mrp,
+        product.opening_qty,
+        product.opening_date,
+        status(product.active),
       ]),
     ];
-  } else if (kind === "distributors") {
+  } else if (kind === "brands") {
     if (!isAdmin) return forbidden();
-    const distributors = await listDistributors();
+    const brands = await listBrands();
     rows = [
-      ["Name", "City", "Contact", "Phone", "Status"],
-      ...distributors.map((distributor) => [
-        distributor.name,
-        distributor.city,
-        distributor.contact,
-        distributor.phone,
-        distributor.active ? "Active" : "Inactive",
+      ["Brand", "Status"],
+      ...brands.map((brand) => [brand.name, status(brand.active)]),
+    ];
+  } else if (kind === "shops") {
+    if (!isAdmin) return forbidden();
+    const shops = await listShops();
+    rows = [
+      ["Shop", "City", "Contact", "Phone", "Status"],
+      ...shops.map((shop) => [
+        shop.name,
+        shop.city,
+        shop.contact,
+        shop.phone,
+        status(shop.active),
       ]),
     ];
   } else if (kind === "users") {

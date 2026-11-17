@@ -1,19 +1,27 @@
 # Sales management dashboard
 
-A small dashboard for a distribution team. The company sells products to
-distributors (**primary sales**), and distributors sell them on (**secondary
-sales**). The difference is the stock each distributor is holding, which is
-always calculated from the sales and never stored.
+A small dashboard for a phone and accessories distributor.
+
+- **Primary sales** are stock bought from the principal, at the RD price.
+- **Secondary sales** are stock sold to retail shops, at the Dealer price.
+- **Stock in hand** per model is opening stock + primary − secondary. It is
+  always calculated from the sales and never stored.
+
+Products are organised as brand → model → capacity. Each product has an RD
+price and a Dealer price, each for cash and 14-day credit (a blank credit
+price falls back to cash), plus the MRP. Every sale records cash or credit
+and keeps the price it was entered at, so later price changes never alter
+past sales.
 
 Built with Next.js (App Router), Tailwind and Postgres.
 
 ## Roles
 
-| Role      | Can do                                                                                        |
-| --------- | --------------------------------------------------------------------------------------------- |
-| Developer | Everything, plus the audit log. Manages Admins and Sales Reps. Never listed to anyone else.   |
-| Admin     | Products, distributors, primary sales, editing or deleting any sale, and managing Sales Reps. |
-| Sales Rep | The dashboard, entering secondary sales, and seeing their own entries.                        |
+| Role      | Can do                                                                                                                                |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Developer | Everything, plus the audit log. Manages Admins and Sales Reps. Never listed to anyone else.                                           |
+| Admin     | Brands, products, shops, primary sales, editing or deleting any sale, and managing Sales Reps.                                        |
+| Sales Rep | The dashboard and entering secondary sales at the Dealer price. Sees only their own entries and cannot edit, delete or change prices. |
 
 Roles are checked on the server in every page, server action and the export
 route. `proxy.ts` only redirects signed-out visitors to the login page.
@@ -30,12 +38,13 @@ npm run db:setup
 npm run dev
 ```
 
-`npm run db:setup` is safe to run again; it resets the Developer password to
-`DEVELOPER_PASSWORD`.
+`npm run db:setup` is safe to run again: it applies any new files in
+`db/migrations/` and resets the Developer password to `DEVELOPER_PASSWORD`.
 
 To try the app with sample data, run `npm run db:demo` on an empty database. It
-adds one admin, two sales reps, four products, four distributors and six months
-of sales, and prints the demo password. Do not run it on the client's database.
+adds one admin, two sales reps, the products from the Alcatel, KXD and
+Kieslect price lists (`scripts/price-lists.ts`), five shops and six months of
+sales, and prints the demo password. Do not run it on the client's database.
 
 ## Deploy (Vercel + Neon)
 
@@ -47,7 +56,8 @@ of sales, and prints the demo password. Do not run it on the client's database.
 
 ## How it is organised
 
-- `db/schema.sql` – tables
+- `db/schema.sql` and `db/migrations/` – tables
+- `lib/pricing.ts` – which price a sale defaults to
 - `lib/queries.ts` – every read, including the stock calculations
 - `app/actions.ts` – every write, each with a role check and an audit log entry
 - `lib/auth.ts` – signed session cookie; the user is reloaded on each request,
@@ -58,5 +68,5 @@ of sales, and prints the demo password. Do not run it on the client's database.
 
 ## Not included yet
 
-Retailers, territories, targets, returns, an approval step for sales, and login
-rate limiting.
+Debtors (collections, overdue credit), invoices with several products, IMEI
+tracking, a distributor login, targets, returns and login rate limiting.
